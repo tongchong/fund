@@ -1,0 +1,36 @@
+version: "3"
+
+services:
+
+  fund-dev:
+    image: fund-dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: /bin/sh -c "while sleep 1000; do :; done"
+    volumes:
+      - ..:/workspace/fund:cached
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=usaveh!
+      - REDIS_DB=0
+      - JWT_SECRET=3x@mpl3!s3cR3tK3y!F0rJWTt0ken$
+      - NEXT_PUBLIC_USE_MOCK=1
+
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: mysqlrootpassword
+    volumes:
+      - "db:/var/lib/mysql"
+    ports:
+      - 3300:3306
+
+  redis:
+    image: redis:alpine
+    ports:
+      - 6379:6379
+
+volumes:
+  db:
