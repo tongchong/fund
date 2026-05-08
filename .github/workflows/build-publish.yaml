@@ -23,13 +23,6 @@ jobs:
       contents: read
       packages: write
 
-    strategy:
-      matrix:
-        include:
-          - name: web
-            file: web
-            build_args: BASE_PATH=
-
     steps:
       - uses: actions/checkout@v3
 
