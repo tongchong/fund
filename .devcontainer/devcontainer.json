@@ -3,7 +3,7 @@
 {
     "name": "fund Dev Env",
     "dockerComposeFile": "./docker-compose.devcontainer.yml",
-    "service": "tiny-garlic-rag-dev",
+    "service": "fund-dev",
     "workspaceFolder": "/workspace/fund",
     "features": {
       "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
