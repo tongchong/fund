@@ -4,4 +4,4 @@
 
 //   ].map((x) => ({ name: x.name, class: x }));
 
-export const migrations = []
+export const migrations = [];
