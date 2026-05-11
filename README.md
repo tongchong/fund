@@ -34,7 +34,7 @@ version: "3"
 # Redis 配置
 REDIS_HOST=redis
 REDIS_PORT=6379
-REDIS_PASSWORD=usaveh!
+REDIS_PASSWORD=testfund!
 REDIS_DB=0
 
 # JWT 配置
@@ -125,7 +125,7 @@ docker-compose up --build
 
 - **Redis 服务**：
   - 端口：`6379`
-  - 默认密码：`usaveh!`（在 `.env` 文件中配置）
+  - 默认密码：`testfund!`（在 `.env` 文件中配置）
   - 可以使用 Redis 客户端进行连接：`redis-cli -h 127.0.0.1 -p 6379`
 
 ### **6. 停止服务**

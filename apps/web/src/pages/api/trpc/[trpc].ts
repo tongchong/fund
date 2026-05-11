@@ -1,10 +1,10 @@
 import { createNextApiHandler } from "@trpc/server/adapters/next";
-import { startHealthCheckScheduler } from "src/server/healthCheckScheduler";
+// import { startHealthCheckScheduler } from "src/server/healthCheckScheduler";
 import { createContext } from "src/server/trpc/context";
 import { appRouter } from "src/server/trpc/router";
 
 // 启动健康检查定时任务（进程级单例）
-startHealthCheckScheduler();
+// startHealthCheckScheduler();
 
 export default createNextApiHandler({
   router: appRouter,

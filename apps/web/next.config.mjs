@@ -4,7 +4,7 @@ import os from "os";
 
 dotenv.config();
 
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/demo/xiaosuan";
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/";
 
 /** @type {import('next').NextConfig} */
 

@@ -201,7 +201,7 @@ export default function LoginPage() {
         <GarlicLogo />
       </div>
       <LoginBox>
-        <LoginTitle>欢迎登录小蒜</LoginTitle>
+        <LoginTitle>欢迎登录</LoginTitle>
         <Form
           name="basic"
           initialValues={{

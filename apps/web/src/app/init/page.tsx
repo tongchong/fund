@@ -108,7 +108,6 @@ export default function InitPage() {
         name: values.username,
         identity: values.username,
         password: values.password,
-        departmentId: Number(values.department),
         email: values.email,
         phone: values.phone,
         role: "ADMIN",

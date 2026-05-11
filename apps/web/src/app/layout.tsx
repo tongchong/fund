@@ -15,7 +15,7 @@ export default function RootLayout({
   return (
     <html style={{ height: "100%" }}>
       <head>
-        <title>小蒜</title>
+        <title>测试</title>
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"

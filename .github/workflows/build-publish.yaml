@@ -38,14 +38,13 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            ${{ env.GITHUB_CR }}/${{ github.repository }}/${{ matrix.name }}
+            ${{ env.GITHUB_CR }}/${{ github.repository }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v4
         with:
           context: .
           push: true
-          build-args: ${{ matrix.build_args }}
           tags: ${{ steps.meta.outputs.tags }}
-          file: dockerfiles/Dockerfile.${{ matrix.file }}
+          file: Dockerfile
           labels: ${{ steps.meta.outputs.labels }}

@@ -79,7 +79,6 @@ export default function RegisterPage() {
         name: values.username,
         identity:values.username,
         password: values.password,
-        departmentId: Number(values.department),
         phone: values.phone,
         email: values.email,
       });
