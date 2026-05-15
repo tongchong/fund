@@ -21,10 +21,6 @@ export default function RootLayout({
           content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
         />
         <link rel="preconnect" href="https://fonts.font.im" />
-        <link
-          href="https://fonts.font.im/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap"
-          rel="stylesheet"
-        />
       </head>
       {/*
         ✅ body 不再 overflow: hidden

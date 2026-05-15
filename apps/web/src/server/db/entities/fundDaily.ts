@@ -8,6 +8,9 @@ export class FundDaily {
   fund!: Fund;
   date!: Date;
   closePrice?: number;
+  estimatedNav?: number;
+  exchangeShares?: number;
+  exchangeSharesChange?: number;
   closePremiumRate?: number;
   navPremiumRate?: number;
   premiumErrorRate?: number;
@@ -18,6 +21,9 @@ export class FundDaily {
     fund: Fund;
     date: Date;
     closePrice?: number;
+    estimatedNav?: number;
+    exchangeShares?: number;
+    exchangeSharesChange?: number;
     closePremiumRate?: number;
     navPremiumRate?: number;
     premiumErrorRate?: number;
@@ -25,6 +31,9 @@ export class FundDaily {
     this.fund = init.fund;
     this.date = init.date;
     this.closePrice = init.closePrice;
+    this.estimatedNav = init.estimatedNav;
+    this.exchangeShares = init.exchangeShares;
+    this.exchangeSharesChange = init.exchangeSharesChange;
     this.closePremiumRate = init.closePremiumRate;
     this.navPremiumRate = init.navPremiumRate;
     this.premiumErrorRate = init.premiumErrorRate;
@@ -43,6 +52,9 @@ fundDailyEntitySchema.addManyToOne(
 );
 fundDailyEntitySchema.addProperty("date", Date, { columnType: "DATE" });
 fundDailyEntitySchema.addProperty("closePrice", Number, { nullable: true, columnType: "decimal(12,4)" });
+fundDailyEntitySchema.addProperty("estimatedNav", Number, { nullable: true, columnType: "decimal(12,4)" });
+fundDailyEntitySchema.addProperty("exchangeShares", Number, { nullable: true, columnType: "decimal(20,2)" });
+fundDailyEntitySchema.addProperty("exchangeSharesChange", Number, { nullable: true, columnType: "decimal(20,2)" });
 fundDailyEntitySchema.addProperty("closePremiumRate", Number, { nullable: true, columnType: "decimal(8,4)" });
 fundDailyEntitySchema.addProperty("navPremiumRate", Number, { nullable: true, columnType: "decimal(8,4)" });
 fundDailyEntitySchema.addProperty("premiumErrorRate", Number, { nullable: true, columnType: "decimal(8,4)" });

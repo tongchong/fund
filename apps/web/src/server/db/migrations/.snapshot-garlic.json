@@ -1,0 +1,674 @@
+{
+  "namespaces": [],
+  "tables": [
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "unsigned": true,
+          "autoincrement": true,
+          "primary": true,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "favorite": {
+          "name": "favorite",
+          "type": "tinyint",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "tinyint"
+        },
+        "category": {
+          "name": "category",
+          "type": "varchar(64)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 64,
+          "mappedType": "string"
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(32)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 32,
+          "mappedType": "string"
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(128)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 128,
+          "mappedType": "string"
+        },
+        "current_price": {
+          "name": "current_price",
+          "type": "decimal(12,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 12,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "daily_change_percent": {
+          "name": "daily_change_percent",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "daily_volume": {
+          "name": "daily_volume",
+          "type": "decimal(16,2)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 16,
+          "scale": 2,
+          "mappedType": "decimal"
+        },
+        "turnover_rate": {
+          "name": "turnover_rate",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "index_change_percent": {
+          "name": "index_change_percent",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "purchase_fee": {
+          "name": "purchase_fee",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "redemption_fee7d": {
+          "name": "redemption_fee7d",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "holding_period": {
+          "name": "holding_period",
+          "type": "varchar(64)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 64,
+          "mappedType": "string"
+        },
+        "purchase_status": {
+          "name": "purchase_status",
+          "type": "varchar(32)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 32,
+          "mappedType": "string"
+        },
+        "company": {
+          "name": "company",
+          "type": "varchar(128)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 128,
+          "mappedType": "string"
+        },
+        "nav_date": {
+          "name": "nav_date",
+          "type": "DATE",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "date"
+        },
+        "nav": {
+          "name": "nav",
+          "type": "decimal(12,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 12,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "estimated_nav": {
+          "name": "estimated_nav",
+          "type": "decimal(12,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 12,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "estimated_premium_rate": {
+          "name": "estimated_premium_rate",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "create_time": {
+          "name": "create_time",
+          "type": "DATETIME(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "current_timestamp(6)",
+          "mappedType": "datetime"
+        },
+        "update_time": {
+          "name": "update_time",
+          "type": "DATETIME(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "current_timestamp(6)",
+          "mappedType": "datetime"
+        }
+      },
+      "name": "fund",
+      "indexes": [
+        {
+          "columnNames": [
+            "code"
+          ],
+          "composite": false,
+          "keyName": "fund_code_unique",
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "PRIMARY",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "unsigned": true,
+          "autoincrement": true,
+          "primary": true,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "fundId": {
+          "name": "fundId",
+          "type": "int",
+          "unsigned": true,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "date": {
+          "name": "date",
+          "type": "DATE",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "date"
+        },
+        "close_price": {
+          "name": "close_price",
+          "type": "decimal(12,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 12,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "close_premium_rate": {
+          "name": "close_premium_rate",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "nav_premium_rate": {
+          "name": "nav_premium_rate",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "premium_error_rate": {
+          "name": "premium_error_rate",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "create_time": {
+          "name": "create_time",
+          "type": "DATETIME(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "current_timestamp(6)",
+          "mappedType": "datetime"
+        },
+        "update_time": {
+          "name": "update_time",
+          "type": "DATETIME(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "current_timestamp(6)",
+          "mappedType": "datetime"
+        }
+      },
+      "name": "fund_daily",
+      "indexes": [
+        {
+          "columnNames": [
+            "fundId"
+          ],
+          "composite": false,
+          "keyName": "fund_daily_fundId_index",
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "PRIMARY",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "fund_daily_fundId_foreign": {
+          "constraintName": "fund_daily_fundId_foreign",
+          "columnNames": [
+            "fundId"
+          ],
+          "localTableName": "fund_daily",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "fund",
+          "updateRule": "cascade"
+        }
+      },
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "unsigned": true,
+          "autoincrement": true,
+          "primary": true,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(32)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 32,
+          "mappedType": "string"
+        },
+        "market": {
+          "name": "market",
+          "type": "tinyint",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "tinyint"
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(128)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 128,
+          "mappedType": "string"
+        },
+        "current_price": {
+          "name": "current_price",
+          "type": "decimal(12,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 12,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "change_percent": {
+          "name": "change_percent",
+          "type": "decimal(8,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 8,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "change_amount": {
+          "name": "change_amount",
+          "type": "decimal(12,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 12,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "previous_close": {
+          "name": "previous_close",
+          "type": "decimal(12,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "precision": 12,
+          "scale": 4,
+          "mappedType": "decimal"
+        },
+        "create_time": {
+          "name": "create_time",
+          "type": "DATETIME(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "current_timestamp(6)",
+          "mappedType": "datetime"
+        },
+        "update_time": {
+          "name": "update_time",
+          "type": "DATETIME(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "current_timestamp(6)",
+          "mappedType": "datetime"
+        }
+      },
+      "name": "market_index",
+      "indexes": [
+        {
+          "columnNames": [
+            "code"
+          ],
+          "composite": false,
+          "keyName": "market_index_code_unique",
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "PRIMARY",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "int",
+          "unsigned": true,
+          "autoincrement": true,
+          "primary": true,
+          "nullable": false,
+          "mappedType": "integer"
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "string"
+        },
+        "identity": {
+          "name": "identity",
+          "type": "varchar(255)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "string"
+        },
+        "role": {
+          "name": "role",
+          "type": "enum('USER','LIBRARY_ADMIN','ADMIN')",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "enumItems": [
+            "USER",
+            "LIBRARY_ADMIN",
+            "ADMIN"
+          ],
+          "mappedType": "enum"
+        },
+        "phone": {
+          "name": "phone",
+          "type": "varchar(255)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "string"
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "string"
+        },
+        "password": {
+          "name": "password",
+          "type": "varchar(255)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "string"
+        },
+        "delete": {
+          "name": "delete",
+          "type": "tinyint",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "tinyint"
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "string"
+        },
+        "remark": {
+          "name": "remark",
+          "type": "varchar(255)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "string"
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "tinyint",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "true",
+          "mappedType": "tinyint"
+        },
+        "create_time": {
+          "name": "create_time",
+          "type": "DATETIME(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "current_timestamp(6)",
+          "mappedType": "datetime"
+        },
+        "update_time": {
+          "name": "update_time",
+          "type": "DATETIME(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "default": "current_timestamp(6)",
+          "mappedType": "datetime"
+        }
+      },
+      "name": "user",
+      "indexes": [
+        {
+          "keyName": "PRIMARY",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    }
+  ],
+  "nativeEnums": {}
+}

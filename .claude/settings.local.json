@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"@sinclair/typebox\" src/ --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.jsx\" -l)",
+      "Bash(grep -r \"@sinclair/typebox\" *.js *.mjs *.ts *.config.*)",
+      "Bash(grep -r \"from ['\\\\\"]axios['\\\\\"]\" src/ --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.jsx\" -l)",
+      "Bash(grep -r \"require\\(['\\\\\"]axios['\\\\\"]\\)\" src/ --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.jsx\" -l)",
+      "Bash(grep -r \"axios\" *.js *.mjs *.ts *.config.*)"
+    ]
+  }
+}

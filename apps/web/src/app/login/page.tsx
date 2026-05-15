@@ -179,9 +179,9 @@ export default function LoginPage() {
 
   const redirectUser = (role: string) => {
     if (role === "ADMIN") {
-      router.push("/user");
+      router.push("/fund");
     } else {
-      router.push("/user");
+      router.push("/fund");
     }
   };
 

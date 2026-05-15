@@ -1,7 +1,7 @@
 "use client";
 
 import { message } from "antd";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { parseCookies } from "nookies";
 import { PropsWithChildren, useEffect } from "react";
 import Header from "src/components/Header";
@@ -9,6 +9,8 @@ import styled from "styled-components";
 
 export default function Layout({ children }: PropsWithChildren) {
   const router = useRouter();
+  const pathname = usePathname();
+  const isFundPage = pathname === "/fund";
 
   useEffect(() => {
     const token = parseCookies().token;
@@ -19,18 +21,18 @@ export default function Layout({ children }: PropsWithChildren) {
   }, [router]);
 
   return (
-    <Wrapper>
-      <Header />
+    <Wrapper $fullscreen={isFundPage}>
+      {!isFundPage && <Header />}
       <PageContent>{children}</PageContent>
     </Wrapper>
   );
 }
 
-const Wrapper = styled.div`
+const Wrapper = styled.div<{ $fullscreen: boolean }>`
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding-top: 64px;
+  padding-top: ${({ $fullscreen }) => $fullscreen ? 0 : 64}px;
 `;
 
 const PageContent = styled.div`

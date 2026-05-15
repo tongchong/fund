@@ -78,8 +78,8 @@ export default function AppHeader() {
         boxShadow: "0 2px 8px rgba(0, 0, 0, 0.08)",
       }}
     >
-      <Title level={4} style={{ margin: 0, cursor: "pointer" }} onClick={() => router.push("/user")}>
-        New Project
+      <Title level={4} style={{ margin: 0, cursor: "pointer" }} onClick={() => router.push("/fund")}>
+        LOF 基金实时监控
       </Title>
 
       <Dropdown

@@ -11,12 +11,12 @@ const distPath = "src/server/db";
 
 
 export const ormConfigs = defineConfig({
-  host:process.env.DB_HOST,
-  port:Number(process.env.DB_PORT),
-  user:process.env.DB_USER,
-  dbName:process.env.DB_NAME,
-  password:process.env.DB_PASSWORD,
-  debug: true,
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT),
+  user: process.env.DB_USER,
+  dbName: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  debug: process.env.MIKRO_ORM_DEBUG === "1" || process.env.DB_DEBUG === "1",
   forceUndefined: true,
   extensions: [Migrator, SeedManager],
   // 连接池配置

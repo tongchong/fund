@@ -2,7 +2,6 @@
 import { createGlobalStyle } from "styled-components";
 
 export const GlobalStyle = createGlobalStyle`
- @import url('https://fonts.font.im/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
 
   #nprogress .bar {
     background-color: ${({ theme }) => theme.token.colorPrimary};
