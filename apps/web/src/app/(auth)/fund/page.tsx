@@ -2,7 +2,7 @@
 
 import { ReloadOutlined, SearchOutlined, StarFilled, StarOutlined } from "@ant-design/icons";
 import type { inferRouterOutputs } from "@trpc/server";
-import { Button, Checkbox, Input, Space, Table, Tag } from "antd";
+import { Button, Checkbox, Input, message, Space, Table, Tag } from "antd";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import type { SorterResult } from "antd/es/table/interface";
 import { useEffect, useMemo, useState } from "react";
@@ -25,9 +25,14 @@ function formatNumber(value: number | null | undefined, digits = 3) {
   return value.toFixed(digits);
 }
 
-function formatAmount(value: number | null | undefined) {
+function formatWanAmount(value: number | null | undefined) {
   if (value === null || value === undefined) return "--";
-  return value.toFixed(2);
+  return (value / 10000).toFixed(2);
+}
+
+function formatWanShares(value: number | null | undefined) {
+  if (value === null || value === undefined) return "--";
+  return (value / 100).toFixed(2);
 }
 
 function formatPercent(value: number | null | undefined, options?: { signed?: boolean }) {
@@ -74,6 +79,18 @@ export default function FundPage() {
     return () => window.clearInterval(timer);
   }, []);
 
+  const trpcUtils = trpc.useUtils();
+  const [messageApi, messageContextHolder] = message.useMessage();
+  const favoriteMutation = trpc.fund.updateFavorite.useMutation({
+    onSuccess: async (_data, variables) => {
+      messageApi.success(variables.favorite ? "加入自选成功" : "已移出自选");
+      await trpcUtils.fund.list.invalidate();
+    },
+    onError: () => {
+      messageApi.error("自选更新失败，请稍后重试");
+    },
+  });
+
   const query = trpc.fund.list.useQuery({
     page,
     pageSize: PAGE_SIZE,
@@ -81,44 +98,61 @@ export default function FundPage() {
     favoriteOnly,
     sortField,
     sortOrder,
+  }, {
+    refetchInterval: 20000,
   });
+
+  const handleToggleFavorite = (record: FundItem) => {
+    favoriteMutation.mutate({ code: record.code, favorite: !record.favorite });
+  };
 
   const columns = useMemo<ColumnsType<FundItem>>(() => [
     {
       title: "自选",
       dataIndex: "favorite",
-      width: 48,
+      width: 40,
       fixed: "left",
       align: "center",
-      render: (favorite: boolean) => (
-        favorite ? <StarFilled className="favorite active" /> : <StarOutlined className="favorite" />
+      render: (favorite: boolean, record) => (
+        <button
+          type="button"
+          className="favorite-button"
+          aria-label={favorite ? "取消自选" : "加入自选"}
+          disabled={favoriteMutation.isLoading}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleToggleFavorite(record);
+          }}
+        >
+          {favorite ? <StarFilled className="favorite active" /> : <StarOutlined className="favorite" />}
+        </button>
       ),
     },
     {
       title: "基金代码",
       dataIndex: "code",
-      width: 86,
+      width: 80,
       fixed: "left",
       render: (code: string) => <a className="fund-code">{code}</a>,
     },
     {
       title: "基金名称",
       dataIndex: "name",
-      width: 150,
+      width: 90,
       fixed: "left",
       render: (name: string) => <span className="fund-name">{name}</span>,
     },
     {
       title: "现价",
       dataIndex: "currentPrice",
-      width: 86,
+      width: 50,
       align: "right",
       render: (value: number | null) => <span className="strong">{formatNumber(value)}</span>,
     },
     {
       title: "今日涨幅(%)",
       dataIndex: "dailyChangePercent",
-      width: 110,
+      width: 80,
       align: "right",
       sorter: true,
       sortOrder: toTableSortOrder("dailyChangePercent", sortField, sortOrder),
@@ -127,32 +161,9 @@ export default function FundPage() {
       ),
     },
     {
-      title: "今日成交(万元)",
-      dataIndex: "dailyVolume",
-      width: 130,
-      align: "right",
-      render: (value: number | null) => <span className="strong">{formatAmount(value)}</span>,
-    },
-    {
-      title: "场内份额",
-      dataIndex: "exchangeShares",
-      width: 110,
-      align: "right",
-      render: (value: number | null) => <span className="strong">{formatAmount(value)}</span>,
-    },
-    {
-      title: "换手率(%)",
-      dataIndex: "turnoverRate",
-      width: 100,
-      align: "right",
-      sorter: true,
-      sortOrder: toTableSortOrder("turnoverRate", sortField, sortOrder),
-      render: (value: number | null) => <span className="strong">{formatPercent(value)}</span>,
-    },
-    {
       title: "相关指数涨幅",
       dataIndex: "indexChangePercent",
-      width: 160,
+      width: 100,
       render: (value: number | null, record) => (
         <span className={toneClass(value)}>
           {record.marketIndexName ?? record.category ?? "相关指数"}
@@ -162,16 +173,72 @@ export default function FundPage() {
       ),
     },
     {
+      title: "实时估值",
+      dataIndex: "estimatedNav",
+      width: 60,
+      align: "right",
+      render: (value: number | null) => <span className="estimate">{formatNumber(value, 4)}</span>,
+    },
+    {
+      title: "实时溢价率(%)",
+      dataIndex: "estimatedPremiumRate",
+      width: 90,
+      align: "right",
+      sorter: true,
+      sortOrder: toTableSortOrder("estimatedPremiumRate", sortField, sortOrder),
+      render: (value: number | null) => (
+        <span className={toneClass(value)}>{formatPercent(value, { signed: true })}</span>
+      ),
+    },
+    {
+      title: "今日成交(万元)",
+      dataIndex: "dailyVolume",
+      width: 80,
+      align: "right",
+      render: (value: number | null) => <span className="strong">{formatWanAmount(value)}</span>,
+    },
+    {
+      title: "场内份额(万份)",
+      dataIndex: "exchangeShares",
+      width: 80,
+      align: "right",
+      render: (value: number | null) => <span className="strong">{formatWanShares(value)}</span>,
+    },
+    {
+      title: "净值日期",
+      dataIndex: "navDate",
+      width: 80,
+      render: (value: string | null) => value || "--",
+    },
+    {
+      title: "基金净值",
+      dataIndex: "nav",
+      width: 60,
+      align: "right",
+      render: (value: number | null) => <span className="strong">{formatNumber(value, 4)}</span>,
+    },
+
+    {
+      title: "换手率(%)",
+      dataIndex: "turnoverRate",
+      width: 60,
+      align: "right",
+      sorter: true,
+      sortOrder: toTableSortOrder("turnoverRate", sortField, sortOrder),
+      render: (value: number | null) => <span className="strong">{formatPercent(value)}</span>,
+    },
+
+    {
       title: "申购费",
       dataIndex: "purchaseFee",
-      width: 86,
+      width: 60,
       align: "right",
       render: (value: number | null) => formatPercent(value),
     },
     {
       title: "7天赎回费",
       dataIndex: "redemptionFee7d",
-      width: 96,
+      width: 60,
       align: "right",
       render: (value: number | null) => formatPercent(value),
     },
@@ -194,38 +261,8 @@ export default function FundPage() {
       width: 110,
       render: (value: string | null) => value || "--",
     },
-    {
-      title: "净值日期",
-      dataIndex: "navDate",
-      width: 110,
-      render: (value: string | null) => value || "--",
-    },
-    {
-      title: "基金净值",
-      dataIndex: "nav",
-      width: 96,
-      align: "right",
-      render: (value: number | null) => <span className="strong">{formatNumber(value, 4)}</span>,
-    },
-    {
-      title: "实时估值",
-      dataIndex: "estimatedNav",
-      width: 96,
-      align: "right",
-      render: (value: number | null) => <span className="estimate">{formatNumber(value, 4)}</span>,
-    },
-    {
-      title: "实时溢价率(%)",
-      dataIndex: "estimatedPremiumRate",
-      width: 124,
-      align: "right",
-      sorter: true,
-      sortOrder: toTableSortOrder("estimatedPremiumRate", sortField, sortOrder),
-      render: (value: number | null) => (
-        <span className={toneClass(value)}>{formatPercent(value, { signed: true })}</span>
-      ),
-    },
-  ], [sortField, sortOrder]);
+
+  ], [favoriteMutation.isLoading, sortField, sortOrder]);
 
   const handleSearch = () => {
     setPage(1);
@@ -253,6 +290,7 @@ export default function FundPage() {
 
   return (
     <PageShell>
+      {messageContextHolder}
       <TopBar>
         <Brand>LOF 基金实时监控</Brand>
         <SourceNav>
@@ -568,11 +606,31 @@ const TableWrap = styled.section`
     color: #8aa2b8;
   }
 
+  .favorite-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    color: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .favorite-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
   .favorite {
     color: #33566f;
     font-size: 14px;
   }
 
+  .favorite-button:hover .favorite,
   .favorite.active {
     color: #ffc84a;
   }

@@ -7,6 +7,8 @@ export interface FundIndexFundLike {
 export interface FundIndexMarketLike {
   code: string;
   name: string;
+  instrumentType?: string | null;
+  source?: string | null;
   changePercent?: number | string | null;
 }
 
@@ -18,6 +20,7 @@ export interface FundIndexRelation {
 
 interface RelationRule {
   indexName: string;
+  indexCode?: string;
   fundCodes?: string[];
   fundNameIncludes?: string[];
 }
@@ -35,9 +38,11 @@ const relationRules: RelationRule[] = [
   { indexName: "大宗商品", fundCodes: ["161715"], fundNameIncludes: ["大宗商品"]},
   { indexName: "800有色", fundCodes: ["165520"], fundNameIncludes: ["有色"]},
   { indexName: "A股资源", fundCodes: ["160620"], fundNameIncludes: ["资源"]},
-  { indexName: "国证有色", fundCodes: ["160221"], fundNameIncludes: ["有色金属"]},
+  { indexName: "中证信息", indexCode: "000935", fundCodes: ["160626"], fundNameIncludes: ["信息LOF"]},
+  { indexName: "国证有色", indexCode: "399395", fundCodes: ["160221"], fundNameIncludes: ["有色金属"]},
   { indexName: "中证上游", fundCodes: ["161217"], fundNameIncludes: ["国投资源"]},
   { indexName: "中证白酒", fundCodes: ["161725", "160632"], fundNameIncludes: ["白酒", "酒LOF"]},
+  { indexName: "国证地产", indexCode: "399393", fundCodes: ["160128", "160218"], fundNameIncludes: ["房地产LOF", "国证房地产"]},
   { indexName: "800地产", fundCodes: ["160628"], fundNameIncludes: ["地产"]},
   { indexName: "生物医药", fundCodes: ["161726"], fundNameIncludes: ["生物医药"]},
   { indexName: "工业40", fundCodes: ["161031"], fundNameIncludes: ["工业4"]},
@@ -48,7 +53,7 @@ const relationRules: RelationRule[] = [
   { indexName: "中证体育", fundCodes: ["161030"], fundNameIncludes: ["体育"]},
   { indexName: "中证医药", fundCodes: ["160635", "161035"], fundNameIncludes: ["医药"]},
   { indexName: "新能源车", fundCodes: ["160225"], fundNameIncludes: ["新能源车"]},
-  { indexName: "证券公司", fundCodes: ["502010", "161720", "161027"], fundNameIncludes: ["证券"]},
+  { indexName: "证券公司", indexCode: "399975", fundCodes: ["502010", "161720", "161027"], fundNameIncludes: ["证券"]},
   { indexName: "中证500", fundCodes: ["501036"], fundNameIncludes: ["中证500"]},
   { indexName: "深证100", fundNameIncludes: ["深证100"]},
   { indexName: "创业板指", fundNameIncludes: ["创业板"]},
@@ -77,11 +82,22 @@ function matchRule(fund: FundIndexFundLike) {
   });
 }
 
+function isIndexCandidate(index: FundIndexMarketLike) {
+  return !index.instrumentType && index.source !== "TENCENT";
+}
+
 function findMarketIndex(
   rule: RelationRule | undefined,
   fund: FundIndexFundLike,
   marketIndices: FundIndexMarketLike[],
 ) {
+  const indexCandidates = marketIndices.filter(isIndexCandidate);
+
+  if (rule?.indexCode) {
+    const exactCode = indexCandidates.find((index) => index.code === rule.indexCode);
+    if (exactCode) return exactCode;
+  }
+
   const preferredNames = [
     rule?.indexName,
     fund.category,
@@ -89,10 +105,10 @@ function findMarketIndex(
   ].filter(Boolean).map((name) => normalizeName(String(name)));
 
   for (const preferredName of preferredNames) {
-    const exact = marketIndices.find((index) => normalizeName(index.name) === preferredName);
+    const exact = indexCandidates.find((index) => normalizeName(index.name) === preferredName);
     if (exact) return exact;
 
-    const partial = marketIndices.find((index) => {
+    const partial = indexCandidates.find((index) => {
       const indexName = normalizeName(index.name);
       return indexName.includes(preferredName) || preferredName.includes(indexName);
     });

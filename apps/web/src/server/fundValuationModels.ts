@@ -66,18 +66,15 @@ interface Adjusted161815Holding {
 
 interface Adjusted161815Config {
   fundCode: string;
-  baseDate: string;
-  baseNav: number;
-  etfCloseDate: string;
-  fx: {
-    usdCnyBase: number;
-    usdCnyEtfClose: number;
-    usdCnyNow: number;
-  };
   includeComtBcdLookthrough: boolean;
   holdings: Adjusted161815Holding[];
   lookthrough: Record<string, Record<string, number>>;
   manualFutureReturns: Record<string, number>;
+}
+
+interface Dynamic161815Base {
+  baseDate: string;
+  baseNav: number;
 }
 
 export const currentFundCodes = [
@@ -124,14 +121,6 @@ const fundSpecificValuationModels: Record<string, FundValuationModel> = Object.f
 
 const adjusted161815Config: Adjusted161815Config = {
   fundCode: "161815",
-  baseDate: "2026-05-13",
-  baseNav: 1.1690,
-  etfCloseDate: "2026-05-14",
-  fx: {
-    usdCnyBase: 6.8431,
-    usdCnyEtfClose: 6.8401,
-    usdCnyNow: 6.8415,
-  },
   includeComtBcdLookthrough: true,
   holdings: [
     {
@@ -223,57 +212,71 @@ const adjusted161815Config: Adjusted161815Config = {
   },
 };
 
-setFundValuationModel("161815", () => estimate161815Adjusted(adjusted161815Config));
+setFundValuationModel("161815", (fund, context) => estimate161815Adjusted(fund, context, adjusted161815Config));
 
-async function estimate161815Adjusted(config: Adjusted161815Config): Promise<FundValuationResult> {
+async function estimate161815Adjusted(
+  fund: Fund,
+  context: FundValuationContext,
+  config: Adjusted161815Config,
+): Promise<FundValuationResult> {
+  const base = resolve161815Base(fund);
+  if (!base) return { modelName: "161815-adjusted-yahoo-futures" };
+
+  const etfCloseDate = getLatestCompletedEtfCloseDate(context.now);
   const stage1Rows = await Promise.all(
     config.holdings.map(async (holding) => {
+      if (base.baseDate >= etfCloseDate) return { contribution: 0 };
+
       try {
-        const item = await fetchCloseReturn(holding.symbol, config.baseDate, config.etfCloseDate);
-        return {
-          return: item.return,
-          contribution: holding.weight * item.return,
-        };
+        const item = await fetchCloseReturn(holding.symbol, base.baseDate, etfCloseDate);
+        return { contribution: holding.weight * item.return };
       } catch {
-        return {
-          return: holding.fallbackStage1Return,
-          contribution: holding.weight * holding.fallbackStage1Return,
-        };
+        const fallback = getStage1FallbackReturn(holding, base.baseDate, etfCloseDate);
+        return { contribution: holding.weight * fallback };
       }
     }),
   );
 
   const stage1AssetReturn = stage1Rows.reduce((sum, row) => sum + row.contribution, 0);
-  const stage1TotalReturn = stage1AssetReturn + stage1FxReturn(config);
-  const navAfterStage1 = config.baseNav * (1 + stage1TotalReturn);
+  const navAfterStage1 = base.baseNav * (1 + stage1AssetReturn);
   const overlayWeights = buildOverlayWeights(config);
   const stage2Rows = await Promise.all(
     overlayWeights.map(async (item) => {
       try {
         const future = await fetchCurrentFutureReturn(item.symbol);
-        return {
-          return: future.return,
-          contribution: item.weight * future.return,
-        };
+        return { contribution: item.weight * future.return };
       } catch {
         const fallback = config.manualFutureReturns[item.symbol] ?? 0;
-        return {
-          return: fallback,
-          contribution: item.weight * fallback,
-        };
+        return { contribution: item.weight * fallback };
       }
     }),
   );
 
   const stage2AssetReturn = stage2Rows.reduce((sum, row) => sum + row.contribution, 0);
-  const stage2TotalReturn = stage2AssetReturn + stage2FxReturn(config);
-  const navNow = navAfterStage1 * (1 + stage2TotalReturn);
+  const navNow = navAfterStage1 * (1 + stage2AssetReturn);
 
   return {
     estimatedNav: roundNav(navNow),
-    estimatedChangePercent: roundPercent((navNow / config.baseNav - 1) * 100),
+    estimatedChangePercent: roundPercent((navNow / base.baseNav - 1) * 100),
     modelName: "161815-adjusted-yahoo-futures",
   };
+}
+
+function resolve161815Base(fund: Fund): Dynamic161815Base | undefined {
+  if (fund.nav === undefined || fund.nav <= 0 || !fund.navDate) return undefined;
+
+  const navDate = fund.navDate instanceof Date ? fund.navDate : new Date(fund.navDate);
+  if (!Number.isFinite(navDate.getTime())) return undefined;
+
+  return {
+    baseDate: toUtcDateString(navDate),
+    baseNav: fund.nav,
+  };
+}
+
+function getStage1FallbackReturn(holding: Adjusted161815Holding, baseDate: string, etfCloseDate: string) {
+  if (baseDate === "2026-05-13" && etfCloseDate === "2026-05-14") return holding.fallbackStage1Return;
+  return 0;
 }
 
 function toUnix(dateStr: string) {
@@ -284,6 +287,39 @@ function addDays(dateStr: string, days: number) {
   const date = new Date(`${dateStr}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
+}
+
+function toUtcDateString(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getLatestCompletedEtfCloseDate(now: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const partMap = new Map(parts.map((part) => [part.type, part.value]));
+  const date = `${partMap.get("year")}-${partMap.get("month")}-${partMap.get("day")}`;
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  const minutes = Number(partMap.get("hour")) * 60 + Number(partMap.get("minute"));
+
+  if (weekday !== 0 && weekday !== 6 && minutes >= 16 * 60 + 15) return date;
+  return getPreviousWeekday(date);
+}
+
+function getPreviousWeekday(dateStr: string) {
+  let date = addDays(dateStr, -1);
+
+  while (true) {
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+    if (day !== 0 && day !== 6) return date;
+    date = addDays(date, -1);
+  }
 }
 
 function isNum(value: unknown): value is number {
@@ -395,13 +431,6 @@ async function fetchCurrentFutureReturn(symbol: string): Promise<YahooFutureRetu
   };
 }
 
-function stage1FxReturn(config: Adjusted161815Config) {
-  return config.fx.usdCnyEtfClose / config.fx.usdCnyBase - 1;
-}
-
-function stage2FxReturn(config: Adjusted161815Config) {
-  return config.fx.usdCnyNow / config.fx.usdCnyEtfClose - 1;
-}
 
 function buildOverlayWeights(config: Adjusted161815Config) {
   const map = new Map<string, number>();

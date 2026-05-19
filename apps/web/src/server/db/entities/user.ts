@@ -22,6 +22,7 @@ export class User {
   title?: string;
   remark?: string;
   enabled: boolean; // ✅ 保持 boolean，但会映射到 TINYINT
+  favoriteFundCodesJson?: string;
 
   constructor(init: {
     name: string;
@@ -36,6 +37,7 @@ export class User {
     title?: string;
     remark?: string;
     enabled: boolean;
+    favoriteFundCodesJson?: string;
   }) {
     this.name = init.name;
     this.identity = init.identity;
@@ -47,6 +49,7 @@ export class User {
     this.title = init.title;
     this.remark = init.remark;
     this.enabled = init.enabled ?? true; // ✅ 改为 ?? 而不是 ||
+    this.favoriteFundCodesJson = init.favoriteFundCodesJson;
 
     if (init.createTime) {
       this.createTime = init.createTime;
@@ -77,6 +80,7 @@ roleEntitySchema.addProperty("delete", Boolean, {
 });
 roleEntitySchema.addProperty("title", String, { nullable: true });
 roleEntitySchema.addProperty("remark", String, { nullable: true });
+roleEntitySchema.addProperty("favoriteFundCodesJson", String, { nullable: true, columnType: "text" });
 // columnType 改为 TINYINT
 roleEntitySchema.addProperty("enabled", Boolean, {
   default: true,

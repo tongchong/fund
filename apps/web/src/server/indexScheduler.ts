@@ -1,4 +1,5 @@
 import https from "node:https";
+import { TextDecoder } from "node:util";
 
 import cron from "node-cron";
 import { Fund } from "src/server/db/entities/fund";
@@ -29,7 +30,7 @@ const INDEX_SECIDS = [
   "1.000922", "0.399990", "2.930713", "2.930720", "2.930719", "0.399804",
   "0.399933", "0.399417", "2.930997", "0.399975", "1.000905", "0.399707",
   "0.399806", "0.399440", "0.399393", "2.930721", "0.399807", "2.950090",
-  "1.000300", "2.930743", "0.399992", "0.399330", "0.399973", "2.H30094",
+  "1.000300", "1.000935", "2.930743", "0.399992", "0.399330", "0.399973", "2.H30094",
   "0.399006", "0.399001", "0.399971", "2.930917", "2.930914", "2.930792",
 ];
 
@@ -42,10 +43,12 @@ const LOF_LIST_PARAMS = "po=1&np=1"
 
 const NAV_API_BASE = "https://fundgz.1234567.com.cn/js";
 const PUBLISHED_NAV_API_URL = "https://fundf10.eastmoney.com/F10DataApi.aspx";
+const FUND_FEE_PAGE_BASE = "https://fundf10.eastmoney.com/jjfl";
 const SINA_QUOTE_URL = "https://hq.sinajs.cn/list=";
 const TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q=";
-const FUND_SYNC_CRON = process.env.FUND_SYNC_CRON || "0 * * * * *";
+const FUND_SYNC_CRON = process.env.FUND_SYNC_CRON || "*/20 * * * * *";
 const FUND_DAILY_SNAPSHOT_CRON = process.env.FUND_DAILY_SNAPSHOT_CRON || "1 15 * * *";
+const FUND_FEE_SYNC_CRON = process.env.FUND_FEE_SYNC_CRON || "15 6 * * *";
 const SUCCESS_LOG_INTERVAL_MS = 5 * 60 * 1000;
 const SCHEDULER_STATE_KEY = "__fundIndexSchedulerState__";
 const COMMODITY_QUOTES = [
@@ -88,6 +91,11 @@ interface NavData {
 interface PublishedNavData {
   nav: number;
   navDate: string;
+}
+
+interface FundFeeData {
+  purchaseFee?: number;
+  redemptionFee7d?: number;
 }
 
 interface DataProvider<T> {
@@ -137,12 +145,16 @@ const FALLBACK_FUND_SECIDS = [
 
 // ---------- HTTP helpers ----------
 
-function httpGet(url: string, headers: Record<string, string> = FETCH_HEADERS): Promise<string> {
+function httpGet(
+  url: string,
+  headers: Record<string, string> = FETCH_HEADERS,
+  encoding: "utf-8" | "gbk" = "utf-8",
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers, timeout: 15000 }, (res) => {
-      let data = "";
-      res.on("data", (chunk: string) => { data += chunk; });
-      res.on("end", () => resolve(data));
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => { chunks.push(chunk); });
+      res.on("end", () => resolve(new TextDecoder(encoding).decode(Buffer.concat(chunks))));
       res.on("error", reject);
     });
     req.on("error", reject);
@@ -211,7 +223,7 @@ async function fetchSinaQuotes(secids: string[]) {
   const text = await httpGet(`${SINA_QUOTE_URL}${symbolPairs.map((item) => item.symbol).join(",")}`, {
     ...FETCH_HEADERS,
     "Referer": "https://finance.sina.com.cn/",
-  });
+  }, "gbk");
   const rowBySymbol = new Map(parseSinaRows(text).map((row) => [row.symbol, row.values]));
 
   return symbolPairs.flatMap(({ secid, symbol }) => {
@@ -285,7 +297,7 @@ async function fetchTencentQuotes(codes: string[]) {
   const text = await httpGet(`${TENCENT_QUOTE_URL}${symbols.join(",")}`, {
     ...FETCH_HEADERS,
     "Referer": "https://gu.qq.com/",
-  });
+  }, "gbk");
   const quotes = new Map<string, { name: string; changePercent: number; currentPrice?: number }>();
 
   text.split(";\n").forEach((row) => {
@@ -378,6 +390,87 @@ async function fetchHoldingsBatch(funds: Fund[]) {
   return result;
 }
 
+async function fetchFundFeesSingle(code: string): Promise<FundFeeData | null> {
+  try {
+    const url = `${FUND_FEE_PAGE_BASE}_${code}.html`;
+    const html = await httpGet(url, {
+      ...FETCH_HEADERS,
+      "Referer": `https://fundf10.eastmoney.com/jjfl_${code}.html`,
+    });
+    const purchaseFee = parsePurchaseFee(html);
+    const redemptionFee7d = parseRedemptionFeeAfter7Days(html);
+
+    if (purchaseFee === undefined && redemptionFee7d === undefined) return null;
+    return { purchaseFee, redemptionFee7d };
+  } catch {
+    return null;
+  }
+}
+
+function parsePurchaseFee(html: string) {
+  const table = extractFeeTable(html, "申购费率");
+  if (!table) return undefined;
+
+  const firstRowCells = extractTableRows(table)[0];
+  if (!firstRowCells) return undefined;
+  return parseLastPercent(firstRowCells.at(-1) ?? "");
+}
+
+function parseRedemptionFeeAfter7Days(html: string) {
+  const table = extractFeeTable(html, "赎回费率");
+  if (!table) return undefined;
+
+  for (const cells of extractTableRows(table)) {
+    const periodText = stripHtml(cells[0] ?? "");
+    if (!isRedemptionPeriodAfter7Days(periodText)) continue;
+
+    return parseFirstPercent(cells[1] ?? "");
+  }
+
+  return undefined;
+}
+
+function extractFeeTable(html: string, title: string) {
+  const titleIndex = html.indexOf(title);
+  if (titleIndex < 0) return null;
+
+  const tableStart = html.indexOf("<table", titleIndex);
+  const tableEnd = html.indexOf("</table>", tableStart);
+  if (tableStart < 0 || tableEnd < 0) return null;
+
+  return html.slice(tableStart, tableEnd + "</table>".length);
+}
+
+function extractTableRows(tableHtml: string) {
+  return [...tableHtml.matchAll(/<tr[^>]*>(.*?)<\/tr>/gis)]
+    .map((row) => [...row[1].matchAll(/<td[^>]*>(.*?)<\/td>/gis)].map((cell) => cell[1]))
+    .filter((cells) => cells.length >= 2);
+}
+
+function stripHtml(value: string) {
+  return value
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, "")
+    .replace(/\s/g, "");
+}
+
+function parseFirstPercent(value: string) {
+  const match = /([0-9]+(?:\.[0-9]+)?)%/.exec(stripHtml(value));
+  return match ? Number(match[1]) : undefined;
+}
+
+function parseLastPercent(value: string) {
+  const matches = [...stripHtml(value).matchAll(/([0-9]+(?:\.[0-9]+)?)%/g)];
+  const match = matches.at(-1);
+  return match ? Number(match[1]) : undefined;
+}
+
+function isRedemptionPeriodAfter7Days(periodText: string) {
+  if (!periodText.includes("7天")) return false;
+  if (/小于|少于|不满|不足|以内|以下|<|＜/.test(periodText)) return false;
+  return /大于|超过|以上|不小于|不低于|不少于|>=|≥/.test(periodText);
+}
+
 async function fetchWithFallback<T>(label: string, providers: DataProvider<T>[]) {
   const errors: string[] = [];
 
@@ -422,19 +515,7 @@ async function fetchNavSingle(code: string): Promise<NavData | null> {
   ]);
 
   if (!realtimeNav && !publishedNav) return null;
-  if (!realtimeNav && publishedNav) {
-    return {
-      nav: publishedNav.nav,
-      estimatedNav: publishedNav.nav,
-      navDate: publishedNav.navDate,
-    };
-  }
-  if (realtimeNav && !publishedNav) return realtimeNav;
-
-  const realtimeDate = realtimeNav ? parseDateTime(realtimeNav.navDate) : 0;
-  const publishedDate = publishedNav ? parseDateTime(publishedNav.navDate) : 0;
-
-  if (publishedNav && publishedDate >= realtimeDate) {
+  if (publishedNav) {
     return {
       nav: publishedNav.nav,
       estimatedNav: realtimeNav?.estimatedNav ?? publishedNav.nav,
@@ -483,11 +564,6 @@ async function fetchPublishedNavSingle(code: string): Promise<PublishedNavData |
   } catch {
     return null;
   }
-}
-
-function parseDateTime(value: string) {
-  const time = new Date(value).getTime();
-  return Number.isFinite(time) ? time : 0;
 }
 
 async function fetchNavBatch(codes: string[]): Promise<Map<string, NavData>> {
@@ -696,16 +772,17 @@ function shouldFetchNavNow() {
   return true;
 }
 
-function calculateExchangeShares(volume: number | undefined, turnoverRate: number | undefined) {
-  if (volume === undefined || turnoverRate === undefined || turnoverRate <= 0) return undefined;
-  return Math.round((volume / (turnoverRate / 100)) * 100) / 100;
+function calculateExchangeShares(volumeHands: number | undefined, turnoverRate: number | undefined) {
+  if (volumeHands === undefined || turnoverRate === undefined || turnoverRate <= 0) return undefined;
+  const volumeShares = volumeHands * 100;
+  return Math.round((volumeShares / (turnoverRate / 100)) * 100) / 100;
 }
 
 function classifyFund(fund: Fund) {
   const text = `${fund.name}${fund.category ?? ""}`.toLowerCase();
   if (/qdii|纳斯达克|标普|海外|德国|印度|日本|越南|全球|油气|美元|抗通胀|商品/i.test(text)) return "QDII";
   if (/恒生|港股|香港|中概|h股|h股|红利低波港股/i.test(text)) return "港股指数基金";
-  if (/指数|300|500|1000|创业板|科创|中证|国证|深证|上证|沪深|行业/i.test(text)) return "A股指数基金";
+  if (/指数|300|500|1000|创业板|科创|中证|国证|深证|上证|沪深|行业|证券|信息|地产|传媒|国防/i.test(text)) return "A股指数基金";
   return "A股股票基金";
 }
 
@@ -783,10 +860,17 @@ async function estimateFunds(funds: Fund[], marketIndices: MarketIndex[] = []) {
       fund.estimatedNav = result.estimatedNav;
     }
 
+    applyDomesticIndexRealtimeEstimate(fund, now, marketIndices);
+
     if (fund.currentPrice !== undefined && fund.estimatedNav !== undefined && fund.estimatedNav > 0) {
-      fund.estimatedPremiumRate = Math.round(
-        ((fund.currentPrice - fund.estimatedNav) / fund.estimatedNav) * 10000,
-      ) / 100;
+      const premiumBase = shouldUseCurrentPriceAsPremiumBase(fund, now, marketIndices)
+        ? fund.currentPrice
+        : fund.estimatedNav;
+      if (premiumBase > 0) {
+        fund.estimatedPremiumRate = Math.round(
+          ((fund.currentPrice - fund.estimatedNav) / premiumBase) * 10000,
+        ) / 100;
+      }
     }
   }
 }
@@ -796,6 +880,30 @@ function applyNavData(fund: Fund, navData: NavData) {
   fund.estimatedNav = navData.estimatedNav;
   const navDate = new Date(navData.navDate);
   if (Number.isFinite(navDate.getTime())) fund.navDate = navDate;
+}
+
+function applyDomesticIndexRealtimeEstimate(fund: Fund, now: Date, marketIndices: MarketIndex[]) {
+  if (!shouldUseCurrentPriceAsPremiumBase(fund, now, marketIndices)) return;
+  if (fund.nav === undefined || fund.nav <= 0 || fund.indexChangePercent === undefined) return;
+
+  // Before today's official NAV is published, estimate domestic index funds from latest official NAV and index move.
+  fund.estimatedNav = Math.round(fund.nav * (1 + fund.indexChangePercent / 100) * 10000) / 10000;
+}
+
+function shouldUseCurrentPriceAsPremiumBase(fund: Fund, now: Date, marketIndices: MarketIndex[]) {
+  if (hasTodayNav(fund, now)) return false;
+  if (fund.fundType === "QDII" || fund.fundType === "港股指数基金") return false;
+  return fund.fundType === "A股指数基金" || resolveFundIndexRelation(fund, marketIndices).code !== null;
+}
+
+function hasTodayNav(fund: Fund, now: Date) {
+  if (!fund.navDate) return false;
+  const navDate = fund.navDate instanceof Date ? fund.navDate : new Date(fund.navDate);
+  if (!Number.isFinite(navDate.getTime())) return false;
+
+  return navDate.getFullYear() === now.getFullYear()
+    && navDate.getMonth() === now.getMonth()
+    && navDate.getDate() === now.getDate();
 }
 
 function logFetchSuccess(fundCount: number, navCount: number) {
@@ -827,6 +935,39 @@ async function fetchAll() {
     await fetchAndUpdateFunds();
   } finally {
     schedulerState.isFetching = false;
+  }
+}
+
+async function updateFundFeesDaily() {
+  try {
+    const em = await forkEntityManager();
+    const funds = await em.find(Fund, {});
+    const concurrency = 5;
+    let updatedCount = 0;
+
+    for (let i = 0; i < funds.length; i += concurrency) {
+      const batch = funds.slice(i, i + concurrency);
+      await Promise.all(batch.map(async (fund) => {
+        const feeData = await fetchFundFeesSingle(fund.code);
+        if (!feeData) return;
+
+        let changed = false;
+        if (feeData.purchaseFee !== undefined && fund.purchaseFee !== feeData.purchaseFee) {
+          fund.purchaseFee = feeData.purchaseFee;
+          changed = true;
+        }
+        if (feeData.redemptionFee7d !== undefined && fund.redemptionFee7d !== feeData.redemptionFee7d) {
+          fund.redemptionFee7d = feeData.redemptionFee7d;
+          changed = true;
+        }
+        if (changed) updatedCount++;
+      }));
+    }
+
+    await em.flush();
+    console.log(`[indexScheduler] fund fees updated: ${updatedCount}/${funds.length}`);
+  } catch (e) {
+    logFetchError("fund fees", e);
   }
 }
 
@@ -892,5 +1033,10 @@ export function startIndexScheduler() {
 
   cron.schedule(FUND_SYNC_CRON, fetchAll);
   cron.schedule(FUND_DAILY_SNAPSHOT_CRON, snapshotFundDaily);
-  console.log(`[indexScheduler] started, cron: ${FUND_SYNC_CRON}, daily snapshot: ${FUND_DAILY_SNAPSHOT_CRON}`);
+  cron.schedule(FUND_FEE_SYNC_CRON, updateFundFeesDaily);
+  void updateFundFeesDaily();
+  console.log(
+    `[indexScheduler] started, cron: ${FUND_SYNC_CRON}, daily snapshot: ${FUND_DAILY_SNAPSHOT_CRON}, `
+    + `fee sync: ${FUND_FEE_SYNC_CRON}`,
+  );
 }
