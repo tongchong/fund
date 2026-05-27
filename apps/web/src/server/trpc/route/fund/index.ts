@@ -1,7 +1,9 @@
 import { router } from "../../def";
-import { list, updateFavorite } from "./fund";
+import { daily, list, updateFavorite, updateReviewed } from "./fund";
 
 export const fund = router({
   list,
+  daily,
   updateFavorite,
+  updateReviewed,
 });

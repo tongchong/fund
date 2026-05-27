@@ -22,6 +22,7 @@ const FETCH_HEADERS = {
 
 const INDEX_API_URL = "https://push2delay.eastmoney.com/api/qt/ulist.np/get"
   + "?fltt=2&invt=2&fields=f2,f3,f4,f12,f13,f14,f18,f124";
+const INDEX_KLINE_API_URL = "https://push2his.eastmoney.com/api/qt/stock/kline/get";
 
 const INDEX_SECIDS = [
   "0.399368", "0.399967", "0.399998", "0.399811", "2.931068", "0.399991",
@@ -30,8 +31,9 @@ const INDEX_SECIDS = [
   "1.000922", "0.399990", "2.930713", "2.930720", "2.930719", "0.399804",
   "0.399933", "0.399417", "2.930997", "0.399975", "1.000905", "0.399707",
   "0.399806", "0.399440", "0.399393", "2.930721", "0.399807", "2.950090",
-  "1.000300", "1.000935", "2.930743", "0.399992", "0.399330", "0.399973", "2.H30094",
+  "1.000300", "1.000935", "1.000984", "1.000841", "2.930743", "0.399992", "0.399330", "0.399973", "2.H30094",
   "0.399006", "0.399001", "0.399971", "2.930917", "2.930914", "2.930792",
+  "2.930746", "2.930791",
 ];
 
 const LOF_LIST_URL = "https://push2delay.eastmoney.com/api/qt/clist/get";
@@ -46,10 +48,11 @@ const PUBLISHED_NAV_API_URL = "https://fundf10.eastmoney.com/F10DataApi.aspx";
 const FUND_FEE_PAGE_BASE = "https://fundf10.eastmoney.com/jjfl";
 const SINA_QUOTE_URL = "https://hq.sinajs.cn/list=";
 const TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q=";
-const FUND_SYNC_CRON = process.env.FUND_SYNC_CRON || "*/20 * * * * *";
-const FUND_DAILY_SNAPSHOT_CRON = process.env.FUND_DAILY_SNAPSHOT_CRON || "1 15 * * *";
+const FUND_SYNC_CRON = process.env.FUND_SYNC_CRON || "*/10 * * * * *";
+const FUND_DAILY_SNAPSHOT_CRON = process.env.FUND_DAILY_SNAPSHOT_CRON || "0 0 * * * *";
 const FUND_FEE_SYNC_CRON = process.env.FUND_FEE_SYNC_CRON || "15 6 * * *";
 const SUCCESS_LOG_INTERVAL_MS = 5 * 60 * 1000;
+const HOLDINGS_SYNC_INTERVAL_MS = Number(process.env.HOLDINGS_SYNC_INTERVAL_MS ?? 20 * 1000);
 const SCHEDULER_STATE_KEY = "__fundIndexSchedulerState__";
 const COMMODITY_QUOTES = [
   { symbol: "hf_GC", code: "HF_GC", name: "COMEX黄金" },
@@ -57,6 +60,30 @@ const COMMODITY_QUOTES = [
   { symbol: "hf_OIL", code: "HF_OIL", name: "布伦特原油" },
   { symbol: "hf_SI", code: "HF_SI", name: "COMEX白银" },
   { symbol: "hf_CAD", code: "HF_CAD", name: "COMEX铜" },
+];
+
+const HONG_KONG_FUND_CODES = new Set([
+  "501307", "160125", "160322", "160644", "160925", "161124", "501021",
+  "501023", "501025", "501301", "501305", "501306", "501311",
+]);
+
+const HANG_SENG_DAILY_BULLETIN_URL = "https://www.hsi.com.hk/data/eng/download/daily-bulletin.json";
+const HANG_SENG_REPORT_BASE_URL = "https://www.hsi.com.hk";
+const HANG_SENG_REPORT_INDEXES = [
+  { code: "HSI", name: "恒生指数", seriesCode: "hsi", rowName: "Hang Seng Index" },
+  { code: "HSTECH", name: "恒生科技指数", seriesCode: "hstech", rowName: "Hang Seng TECH Index" },
+  { code: "HSSI", name: "恒生综合小型股指数", seriesCode: "hsci", rowName: "Hang Seng Composite SmallCap Index" },
+  {
+    code: "HSCHK30",
+    name: "恒生中国(香港上市)30指数",
+    seriesCode: "hschk25",
+    rowName: "Hang Seng China (Hong Kong-listed) 30 Index",
+  },
+];
+
+const TENCENT_HK_INDEX_SYMBOLS = [
+  { symbol: "hkHSI", code: "HSI", name: "恒生指数" },
+  { symbol: "hkHSTECH", code: "HSTECH", name: "恒生科技指数" },
 ];
 
 // ---------- types ----------
@@ -69,6 +96,7 @@ interface IndexItem {
   f13: number | string;
   f14: string;
   f18: number | string;
+  source?: string;
 }
 
 interface LofItem {
@@ -103,6 +131,11 @@ interface DataProvider<T> {
   fetch: () => Promise<T[]>;
 }
 
+interface ProviderResult<T> {
+  source: string;
+  items: T[];
+}
+
 interface CommodityQuoteItem {
   code: string;
   name: string;
@@ -117,6 +150,7 @@ interface SchedulerState {
   lastSuccessLogAt: number;
   isFetching: boolean;
   lastNavFetchHour: string;
+  lastHoldingsFetchAt: number;
   started: boolean;
 }
 
@@ -125,6 +159,7 @@ const schedulerState = ((globalThis as unknown as Record<string, SchedulerState>
   lastSuccessLogAt: 0,
   isFetching: false,
   lastNavFetchHour: "",
+  lastHoldingsFetchAt: 0,
   started: false,
 });
 
@@ -140,7 +175,8 @@ const FALLBACK_FUND_SECIDS = [
   "0.163407", "0.161028", "1.501009", "0.161123", "0.161227", "1.501016",
   "0.160630", "1.501089", "0.160223", "0.163109", "0.160629", "1.501307",
   "1.501305", "1.501306", "1.501303", "1.501302", "0.160924", "0.164705",
-  "1.501311", "1.501021", "1.501025", "0.161124",
+  "1.501311", "1.501021", "1.501025", "0.161124", "0.160125", "0.160322",
+  "0.160644", "0.160925", "1.501023", "1.501301",
 ];
 
 // ---------- HTTP helpers ----------
@@ -148,7 +184,7 @@ const FALLBACK_FUND_SECIDS = [
 function httpGet(
   url: string,
   headers: Record<string, string> = FETCH_HEADERS,
-  encoding: "utf-8" | "gbk" = "utf-8",
+  encoding: "utf-8" | "gbk" | "utf-16le" = "utf-8",
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers, timeout: 15000 }, (res) => {
@@ -168,7 +204,55 @@ async function fetchIndexItems(): Promise<IndexItem[]> {
   const url = `${INDEX_API_URL}&secids=${INDEX_SECIDS.join(",")}`;
   const text = await httpGet(url);
   const json = JSON.parse(text);
-  return json?.data?.diff ?? [];
+  const items = (json?.data?.diff ?? []) as IndexItem[];
+  return enrichIndexItemsWithKlineFallback(items);
+}
+
+function indexItemToSecid(item: IndexItem) {
+  if (!item.f12) return null;
+  const market = toFiniteNumber(item.f13);
+  return `${market ?? 0}.${item.f12}`;
+}
+
+async function fetchIndexKlineFallback(item: IndexItem): Promise<IndexItem | null> {
+  const secid = indexItemToSecid(item);
+  if (!secid) return null;
+
+  const url = INDEX_KLINE_API_URL
+    + `?secid=${secid}&fields1=f1,f2,f3,f4,f5,f6`
+    + "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+    + "&klt=101&fqt=0&end=20500101&lmt=1";
+  const text = await httpGet(url);
+  const json = JSON.parse(text);
+  const latestKline = String(json?.data?.klines?.[0] ?? "");
+  const cells = latestKline.split(",");
+  const currentPrice = toFiniteNumber(cells[2]);
+  const changePercent = toFiniteNumber(cells[8]);
+  const changeAmount = toFiniteNumber(cells[9]);
+  if (currentPrice === undefined || changePercent === undefined) return null;
+
+  return {
+    ...item,
+    f2: currentPrice,
+    f3: changePercent,
+    f4: changeAmount ?? 0,
+    f18: changeAmount === undefined ? item.f18 : currentPrice - changeAmount,
+    source: "东方财富K线",
+  };
+}
+
+async function enrichIndexItemsWithKlineFallback(items: IndexItem[]) {
+  const enrichedItems = await Promise.all(items.map(async (item) => {
+    if (toFiniteNumber(item.f2) !== undefined && toFiniteNumber(item.f3) !== undefined) return item;
+
+    try {
+      return await fetchIndexKlineFallback(item) ?? item;
+    } catch {
+      return item;
+    }
+  }));
+
+  return enrichedItems;
 }
 
 async function fetchLofList(): Promise<LofItem[]> {
@@ -207,7 +291,7 @@ function parseSinaRows(text: string) {
   return text
     .split(";\n")
     .map((row) => {
-      const match = /var hq_str_([a-z0-9]+)="(.*)"/i.exec(row);
+      const match = /var hq_str_([a-z0-9_]+)="(.*)"/i.exec(row);
       if (!match) return null;
       const values = match[2].split(",");
       if (!values[0]) return null;
@@ -254,14 +338,152 @@ async function fetchSinaIndexItems(): Promise<IndexItem[]> {
   });
 }
 
+function parseTencentHongKongIndexRow(row: string): IndexItem | null {
+  const match = /v_([a-z0-9]+)="(.*)"/i.exec(row);
+  if (!match) return null;
+
+  const config = TENCENT_HK_INDEX_SYMBOLS.find((item) => item.symbol.toLowerCase() === match[1].toLowerCase());
+  if (!config) return null;
+
+  const values = match[2].split("~");
+  const currentPrice = toFiniteNumber(values[3]);
+  const previousClose = toFiniteNumber(values[4]);
+  const changeAmount = toFiniteNumber(values[31]);
+  const changePercent = toFiniteNumber(values[32]);
+  if (currentPrice === undefined || changePercent === undefined) return null;
+
+  return {
+    f2: currentPrice,
+    f3: changePercent,
+    f4: changeAmount ?? (previousClose === undefined ? 0 : currentPrice - previousClose),
+    f12: config.code,
+    f13: 100,
+    f14: config.name,
+    f18: previousClose ?? currentPrice,
+    source: "腾讯港股指数",
+  } satisfies IndexItem;
+}
+
+async function fetchTencentHongKongIndexItems(): Promise<IndexItem[]> {
+  const symbols = TENCENT_HK_INDEX_SYMBOLS.map((item) => item.symbol).join(",");
+  const text = await httpGet(`${TENCENT_QUOTE_URL}${symbols}`, {
+    ...FETCH_HEADERS,
+    "Referer": "https://gu.qq.com/",
+  }, "gbk");
+
+  return text
+    .split(";\n")
+    .map(parseTencentHongKongIndexRow)
+    .filter((item): item is IndexItem => item !== null);
+}
+
+interface HangSengDailyBulletinReport {
+  reportType?: string;
+  reportDate?: { date?: string; url?: string }[];
+}
+
+interface HangSengDailyBulletinSeries {
+  seriesCode?: string;
+  reportList?: HangSengDailyBulletinReport[];
+}
+
+function parseHangSengReportLine(line: string) {
+  return line
+    .split("\t")
+    .map((cell) => cell.replace(/^\uFEFF/, "").replace(/^"|"$/g, ""));
+}
+
+function findHangSengIndexRow(csv: string, rowName: string) {
+  return csv
+    .split(/\r?\n/)
+    .map(parseHangSengReportLine)
+    .find((cells) => cells[1]?.includes(rowName));
+}
+
+async function fetchHangSengDailyReportUrls() {
+  const text = await httpGet(HANG_SENG_DAILY_BULLETIN_URL);
+  const json = JSON.parse(text);
+  const seriesList = (json?.indexSeriesList ?? []) as HangSengDailyBulletinSeries[];
+  const urlsBySeriesCode = new Map<string, string>();
+
+  for (const series of seriesList) {
+    if (!series.seriesCode) continue;
+
+    const idxReport = series.reportList?.find((report) => report.reportType === "idx");
+    const latestReport = idxReport?.reportDate
+      ?.filter((report) => report.url && report.date)
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+      .at(-1);
+    if (latestReport?.url) urlsBySeriesCode.set(series.seriesCode, latestReport.url);
+  }
+
+  return urlsBySeriesCode;
+}
+
+async function fetchHangSengOfficialIndexItems(): Promise<IndexItem[]> {
+  const urlsBySeriesCode = await fetchHangSengDailyReportUrls();
+  const items: IndexItem[] = [];
+
+  await Promise.all(HANG_SENG_REPORT_INDEXES.map(async (config) => {
+    const url = urlsBySeriesCode.get(config.seriesCode);
+    if (!url) return;
+
+    const csv = await httpGet(`${HANG_SENG_REPORT_BASE_URL}${url}`, FETCH_HEADERS, "utf-16le");
+    const cells = findHangSengIndexRow(csv, config.rowName);
+    if (!cells) return;
+
+    const currentPrice = toFiniteNumber(cells[5]);
+    const changeAmount = toFiniteNumber(cells[6]);
+    const changePercent = toFiniteNumber(cells[7]);
+    if (currentPrice === undefined || changePercent === undefined) return;
+
+    items.push({
+      f2: currentPrice,
+      f3: changePercent,
+      f4: changeAmount ?? 0,
+      f12: config.code,
+      f13: 100,
+      f14: config.name,
+      f18: changeAmount === undefined ? currentPrice : currentPrice - changeAmount,
+      source: "恒生指数公司",
+    });
+  }));
+
+  return items;
+}
+
+function mergeIndexItems(primary: IndexItem[], fallback: IndexItem[]) {
+  const byCode = new Map<string, IndexItem>();
+  fallback.forEach((item) => byCode.set(item.f12, item));
+  primary.forEach((item) => byCode.set(item.f12, item));
+  return [...byCode.values()];
+}
+
+async function fetchHongKongIndexItems(): Promise<IndexItem[]> {
+  const [tencentResult, hangSengResult] = await Promise.allSettled([
+    fetchTencentHongKongIndexItems(),
+    fetchHangSengOfficialIndexItems(),
+  ]);
+  const tencentItems = tencentResult.status === "fulfilled" ? tencentResult.value : [];
+  const hangSengItems = hangSengResult.status === "fulfilled" ? hangSengResult.value : [];
+
+  if (!tencentItems.length && !hangSengItems.length) {
+    const errors = [tencentResult, hangSengResult]
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason?.message || String(result.reason));
+    throw new Error(errors.join("; ") || "empty response");
+  }
+
+  return mergeIndexItems(tencentItems, hangSengItems);
+}
 async function fetchSinaLofList(): Promise<LofItem[]> {
   const rows = await fetchSinaQuotes(FALLBACK_FUND_SECIDS);
 
-  return rows.flatMap(({ values }) => {
-    const code = values[30]?.trim();
+  return rows.flatMap(({ secid, values }) => {
+    const code = secid.split(".")[1]?.trim();
     const previousClose = toFiniteNumber(values[2]);
     const currentPrice = toFiniteNumber(values[3]);
-    if (!code || currentPrice === undefined || previousClose === undefined) return [];
+    if (!isValidFundCode(code) || currentPrice === undefined || previousClose === undefined) return [];
 
     const changePercent = previousClose > 0
       ? Math.round(((currentPrice - previousClose) / previousClose) * 10000) / 100
@@ -278,6 +500,10 @@ async function fetchSinaLofList(): Promise<LofItem[]> {
       f18: previousClose,
     }];
   });
+}
+
+function isValidFundCode(code: string | null | undefined): code is string {
+  return /^\d{6}$/.test(code ?? "");
 }
 
 function codeToTencentSymbol(code: string) {
@@ -320,7 +546,7 @@ async function fetchCommodityQuotes(): Promise<CommodityQuoteItem[]> {
   const text = await httpGet(`${SINA_QUOTE_URL}${COMMODITY_QUOTES.map((item) => item.symbol).join(",")}`, {
     ...FETCH_HEADERS,
     "Referer": "https://finance.sina.com.cn/",
-  });
+  }, "gbk");
   const valuesBySymbol = new Map(parseSinaRows(text).map((row) => [row.symbol, row.values]));
 
   return COMMODITY_QUOTES.flatMap((item) => {
@@ -466,12 +692,19 @@ function parseLastPercent(value: string) {
 }
 
 function isRedemptionPeriodAfter7Days(periodText: string) {
-  if (!periodText.includes("7天")) return false;
-  if (/小于|少于|不满|不足|以内|以下|<|＜/.test(periodText)) return false;
-  return /大于|超过|以上|不小于|不低于|不少于|>=|≥/.test(periodText);
+  const normalized = periodText
+    .replace(/（含）|\(含\)|含/g, "")
+    .replace(/≤|﹤|＜/g, "<")
+    .replace(/≥|﹥|＞/g, ">")
+    .replace(/＝/g, "=");
+
+  if (!normalized.includes("7天")) return false;
+  if (/小于7天|少于7天|不满7天|不足7天|7天以内|7天以下|<7天/.test(normalized)) return false;
+
+  return /大于等于7天|大于7天|超过7天|不少于7天|不低于7天|7天以上|7天及以上|>=7天|>7天|7天<=|7天</.test(normalized);
 }
 
-async function fetchWithFallback<T>(label: string, providers: DataProvider<T>[]) {
+async function fetchWithFallback<T>(label: string, providers: DataProvider<T>[]): Promise<ProviderResult<T>> {
   const errors: string[] = [];
 
   for (const provider of providers) {
@@ -481,7 +714,7 @@ async function fetchWithFallback<T>(label: string, providers: DataProvider<T>[])
         if (errors.length) {
           console.warn(`[indexScheduler] ${label} recovered by ${provider.name}`);
         }
-        return items;
+        return { source: provider.name, items };
       }
       errors.push(`${provider.name}: empty response`);
     } catch (e) {
@@ -586,9 +819,50 @@ async function fetchNavBatch(codes: string[]): Promise<Map<string, NavData>> {
 
 // ---------- update logic ----------
 
+type SchedulerEntityManager = Awaited<ReturnType<typeof forkEntityManager>>;
+
+async function findOrCreateFundByCode(
+  em: SchedulerEntityManager,
+  cache: Map<string, Fund>,
+  init: ConstructorParameters<typeof Fund>[0],
+) {
+  let fund: Fund | null | undefined = cache.get(init.code);
+  if (fund) return fund;
+
+  fund = await em.findOne(Fund, { code: init.code });
+  if (!fund) {
+    fund = new Fund(init);
+    em.persist(fund);
+  }
+  cache.set(fund.code, fund);
+  return fund;
+}
+
+async function findOrCreateMarketIndexByCode(
+  em: SchedulerEntityManager,
+  cache: Map<string, MarketIndex>,
+  init: ConstructorParameters<typeof MarketIndex>[0],
+) {
+  let index: MarketIndex | null | undefined = cache.get(init.code);
+  if (index) return index;
+
+  index = await em.findOne(MarketIndex, { code: init.code });
+  if (!index) {
+    index = new MarketIndex(init);
+    em.persist(index);
+  }
+  cache.set(index.code, index);
+  return index;
+}
+
 async function fetchAndUpdateIndices() {
   try {
-    const items = await fetchIndexItemsWithFallback();
+    const { source, items: domesticItems } = await fetchIndexItemsWithFallback();
+    const hongKongItems = await fetchHongKongIndexItems().catch((error) => {
+      logFetchError("hong-kong-index", error);
+      return [] as IndexItem[];
+    });
+    const items = mergeIndexItems(domesticItems, hongKongItems);
     if (!items.length) return;
     schedulerState.consecutiveFailures = 0;
 
@@ -607,12 +881,14 @@ async function fetchAndUpdateIndices() {
       if (index) {
         index.name = item.f14;
         index.market = market ?? index.market;
+        index.source = item.source ?? source;
+        index.instrumentType = undefined;
         if (currentPrice !== undefined) index.currentPrice = currentPrice;
         if (changePercent !== undefined) index.changePercent = changePercent;
         if (changeAmount !== undefined) index.changeAmount = changeAmount;
         if (previousClose !== undefined) index.previousClose = previousClose;
       } else {
-        index = new MarketIndex({
+        index = await findOrCreateMarketIndexByCode(em, indexByCode, {
           code: item.f12,
           market: market ?? 0,
           name: item.f14,
@@ -620,9 +896,16 @@ async function fetchAndUpdateIndices() {
           changePercent,
           changeAmount,
           previousClose,
+          source: item.source ?? source,
         });
-        em.persist(index);
-        indexByCode.set(index.code, index);
+        index.name = item.f14;
+        index.market = market ?? index.market;
+        index.source = item.source ?? source;
+        index.instrumentType = undefined;
+        if (currentPrice !== undefined) index.currentPrice = currentPrice;
+        if (changePercent !== undefined) index.changePercent = changePercent;
+        if (changeAmount !== undefined) index.changeAmount = changeAmount;
+        if (previousClose !== undefined) index.previousClose = previousClose;
       }
     }
     await em.flush();
@@ -643,7 +926,7 @@ async function fetchAndUpdateCommodities() {
     for (const item of items) {
       let index = indexByCode.get(item.code);
       if (!index) {
-        index = new MarketIndex({
+        index = await findOrCreateMarketIndexByCode(em, indexByCode, {
           code: item.code,
           market: 9,
           name: item.name,
@@ -654,18 +937,15 @@ async function fetchAndUpdateCommodities() {
           changeAmount: item.changeAmount,
           previousClose: item.previousClose,
         });
-        em.persist(index);
-        indexByCode.set(index.code, index);
-      } else {
-        index.name = item.name;
-        index.market = 9;
-        index.instrumentType = "FUTURE";
-        index.source = "SINA_GLOBAL_FUTURES";
-        index.currentPrice = item.currentPrice;
-        index.changePercent = item.changePercent;
-        index.changeAmount = item.changeAmount;
-        index.previousClose = item.previousClose;
       }
+      index.name = item.name;
+      index.market = 9;
+      index.instrumentType = "FUTURE";
+      index.source = "SINA_GLOBAL_FUTURES";
+      index.currentPrice = item.currentPrice;
+      index.changePercent = item.changePercent;
+      index.changeAmount = item.changeAmount;
+      index.previousClose = item.previousClose;
     }
 
     await em.flush();
@@ -676,7 +956,8 @@ async function fetchAndUpdateCommodities() {
 
 async function fetchAndUpdateFunds() {
   try {
-    const lofItems = await fetchLofListWithFallback();
+    const { source, items } = await fetchLofListWithFallback();
+    const lofItems = items.filter((item) => isValidFundCode(item.f12));
     if (!lofItems.length) return;
     schedulerState.consecutiveFailures = 0;
 
@@ -690,7 +971,10 @@ async function fetchAndUpdateFunds() {
     const touchedCodes = new Set<string>();
 
     for (const fund of fundByCode.values()) {
-      fund.fundType = classifyFund(fund);
+      const indexRelation = resolveFundIndexRelation(fund, marketIndices);
+      fund.category = indexRelation.name ?? fund.category;
+      fund.indexChangePercent = indexRelation.changePercent ?? fund.indexChangePercent;
+      fund.fundType = indexRelation.code ? "A股指数基金" : classifyFund(fund);
     }
 
     for (const item of lofItems) {
@@ -703,23 +987,28 @@ async function fetchAndUpdateFunds() {
       let fund = fundByCode.get(item.f12);
       if (fund) {
         fund.name = item.f14;
+        fund.source = source;
         if (currentPrice !== undefined) fund.currentPrice = currentPrice;
         if (dailyChangePercent !== undefined) fund.dailyChangePercent = dailyChangePercent;
         if (dailyVolume !== undefined) fund.dailyVolume = dailyVolume;
         if (turnoverRate !== undefined) fund.turnoverRate = turnoverRate;
         if (exchangeShares !== undefined) fund.exchangeShares = exchangeShares;
       } else {
-        fund = new Fund({
+        fund = await findOrCreateFundByCode(em, fundByCode, {
           code: item.f12,
           name: item.f14,
           currentPrice,
           dailyChangePercent,
           exchangeShares,
+          source,
         });
-        fund.dailyVolume = dailyVolume;
-        fund.turnoverRate = turnoverRate;
-        em.persist(fund);
-        fundByCode.set(fund.code, fund);
+        fund.name = item.f14;
+        fund.source = source;
+        if (currentPrice !== undefined) fund.currentPrice = currentPrice;
+        if (dailyChangePercent !== undefined) fund.dailyChangePercent = dailyChangePercent;
+        if (dailyVolume !== undefined) fund.dailyVolume = dailyVolume;
+        if (turnoverRate !== undefined) fund.turnoverRate = turnoverRate;
+        if (exchangeShares !== undefined) fund.exchangeShares = exchangeShares;
       }
       touchedCodes.add(fund.code);
 
@@ -736,7 +1025,7 @@ async function fetchAndUpdateFunds() {
       const indexRelation = resolveFundIndexRelation(fund, marketIndices);
       fund.category = indexRelation.name ?? fund.category;
       fund.indexChangePercent = indexRelation.changePercent ?? fund.indexChangePercent;
-      fund.fundType = classifyFund(fund);
+      fund.fundType = indexRelation.code ? "A股指数基金" : classifyFund(fund);
     }
 
     for (const fund of fundByCode.values()) {
@@ -750,10 +1039,15 @@ async function fetchAndUpdateFunds() {
           ((fund.currentPrice - navData.estimatedNav) / navData.estimatedNav) * 10000,
         ) / 100;
       }
-      fund.fundType = classifyFund(fund);
+      const indexRelation = resolveFundIndexRelation(fund, marketIndices);
+      fund.category = indexRelation.name ?? fund.category;
+      fund.indexChangePercent = indexRelation.changePercent ?? fund.indexChangePercent;
+      fund.fundType = indexRelation.code ? "A股指数基金" : classifyFund(fund);
     }
 
-    await updateHoldingsAndStockQuotes(em, [...fundByCode.values()]);
+    if (shouldFetchHoldingsNow()) {
+      await updateHoldingsAndStockQuotes(em, [...fundByCode.values()]);
+    }
     await estimateFunds([...fundByCode.values()], marketIndices);
 
     await em.flush();
@@ -772,6 +1066,16 @@ function shouldFetchNavNow() {
   return true;
 }
 
+function shouldFetchHoldingsNow() {
+  const now = Date.now();
+  if (schedulerState.lastHoldingsFetchAt && now - schedulerState.lastHoldingsFetchAt < HOLDINGS_SYNC_INTERVAL_MS) {
+    return false;
+  }
+
+  schedulerState.lastHoldingsFetchAt = now;
+  return true;
+}
+
 function calculateExchangeShares(volumeHands: number | undefined, turnoverRate: number | undefined) {
   if (volumeHands === undefined || turnoverRate === undefined || turnoverRate <= 0) return undefined;
   const volumeShares = volumeHands * 100;
@@ -779,10 +1083,13 @@ function calculateExchangeShares(volumeHands: number | undefined, turnoverRate: 
 }
 
 function classifyFund(fund: Fund) {
+  if (fund.code === "161715") return "A股指数基金";
+  if (HONG_KONG_FUND_CODES.has(String(fund.code).trim())) return "港股指数基金";
+
   const text = `${fund.name}${fund.category ?? ""}`.toLowerCase();
-  if (/qdii|纳斯达克|标普|海外|德国|印度|日本|越南|全球|油气|美元|抗通胀|商品/i.test(text)) return "QDII";
+  if (/qdii|纳斯达克|标普|海外|德国|印度|日本|越南|全球|油气|美元|抗通胀|原油/i.test(text)) return "QDII";
   if (/恒生|港股|香港|中概|h股|h股|红利低波港股/i.test(text)) return "港股指数基金";
-  if (/指数|300|500|1000|创业板|科创|中证|国证|深证|上证|沪深|行业|证券|信息|地产|传媒|国防/i.test(text)) return "A股指数基金";
+  if (/指数|300|500|1000|创业板|科创|中证|国证|深证|上证|沪深|行业|证券|信息|地产|传媒|国防|大宗商品/i.test(text)) return "A股指数基金";
   return "A股股票基金";
 }
 
@@ -813,7 +1120,7 @@ async function updateHoldingsAndStockQuotes(em: Awaited<ReturnType<typeof forkEn
       const quote = quoteMap.get(holding.code);
       let stock = stockByCode.get(holding.code);
       if (!stock) {
-        stock = new MarketIndex({
+        stock = await findOrCreateMarketIndexByCode(em, stockByCode, {
           code: holding.code,
           market: holding.market ?? 0,
           name: quote?.name ?? holding.name,
@@ -822,15 +1129,12 @@ async function updateHoldingsAndStockQuotes(em: Awaited<ReturnType<typeof forkEn
           currentPrice: quote?.currentPrice,
           changePercent: quote?.changePercent,
         });
-        em.persist(stock);
-        stockByCode.set(stock.code, stock);
-      } else {
-        stock.name = quote?.name ?? holding.name;
-        stock.instrumentType = "STOCK";
-        stock.source = "TENCENT";
-        if (quote?.currentPrice !== undefined) stock.currentPrice = quote.currentPrice;
-        if (quote?.changePercent !== undefined) stock.changePercent = quote.changePercent;
       }
+      stock.name = quote?.name ?? holding.name;
+      stock.instrumentType = "STOCK";
+      stock.source = "TENCENT";
+      if (quote?.currentPrice !== undefined) stock.currentPrice = quote.currentPrice;
+      if (quote?.changePercent !== undefined) stock.changePercent = quote.changePercent;
     }
   }
 }
@@ -843,7 +1147,10 @@ async function estimateFunds(funds: Fund[], marketIndices: MarketIndex[] = []) {
       {
         code: item.code,
         name: item.name,
+        currentPrice: item.currentPrice,
         changePercent: item.changePercent,
+        previousClose: item.previousClose,
+        updateTime: item.updateTime,
       },
     ]),
   );
@@ -860,7 +1167,9 @@ async function estimateFunds(funds: Fund[], marketIndices: MarketIndex[] = []) {
       fund.estimatedNav = result.estimatedNav;
     }
 
-    applyDomesticIndexRealtimeEstimate(fund, now, marketIndices);
+    if (fund.code !== "161815") {
+      applyDomesticIndexRealtimeEstimate(fund, now, marketIndices);
+    }
 
     if (fund.currentPrice !== undefined && fund.estimatedNav !== undefined && fund.estimatedNav > 0) {
       const premiumBase = shouldUseCurrentPriceAsPremiumBase(fund, now, marketIndices)
@@ -976,9 +1285,15 @@ async function snapshotFundDaily() {
     const em = await forkEntityManager();
     const funds = await em.find(Fund, {});
     const marketIndices = await em.find(MarketIndex, {});
-    await estimateFunds(funds, marketIndices);
-
     const today = startOfDay(new Date());
+    const navMap = await fetchNavBatch(funds.map((fund) => fund.code));
+
+    for (const fund of funds) {
+      const navData = navMap.get(fund.code);
+      if (navData) applyNavData(fund, navData);
+    }
+
+    await estimateFunds(funds, marketIndices);
     const previous = await em.find(FundDaily, { date: { $lt: today } }, { orderBy: { date: "desc" } });
     const latestDailyByFundId = new Map<number, FundDaily>();
     previous.forEach((daily) => {
@@ -995,6 +1310,7 @@ async function snapshotFundDaily() {
       const exchangeSharesChange = fund.exchangeShares !== undefined && previousDaily?.exchangeShares !== undefined
         ? Math.round((fund.exchangeShares - previousDaily.exchangeShares) * 100) / 100
         : undefined;
+      const closePremiumRate = calculatePremiumRate(fund.currentPrice, fund.estimatedNav, fund.estimatedNav);
 
       if (!daily) {
         daily = new FundDaily({
@@ -1004,7 +1320,7 @@ async function snapshotFundDaily() {
           estimatedNav: fund.estimatedNav,
           exchangeShares: fund.exchangeShares,
           exchangeSharesChange,
-          closePremiumRate: fund.estimatedPremiumRate,
+          closePremiumRate,
         });
         em.persist(daily);
       } else {
@@ -1012,8 +1328,10 @@ async function snapshotFundDaily() {
         daily.estimatedNav = fund.estimatedNav;
         daily.exchangeShares = fund.exchangeShares;
         daily.exchangeSharesChange = exchangeSharesChange;
-        daily.closePremiumRate = fund.estimatedPremiumRate;
+        daily.closePremiumRate = closePremiumRate;
       }
+
+      await applyPublishedNavToFundDaily(em, fund, daily);
     }
 
     await em.flush();
@@ -1023,8 +1341,61 @@ async function snapshotFundDaily() {
   }
 }
 
+async function applyPublishedNavToFundDaily(em: SchedulerEntityManager, fund: Fund, todayDaily: FundDaily) {
+  const nav = toFiniteNumber(fund.nav);
+  if (nav === undefined || !fund.navDate) return;
+
+  const navDate = startOfDay(fund.navDate instanceof Date ? fund.navDate : new Date(fund.navDate));
+  if (!Number.isFinite(navDate.getTime())) return;
+
+  let daily = isSameDate(navDate, todayDaily.date)
+    ? todayDaily
+    : await em.findOne(FundDaily, { fund, date: navDate });
+
+  if (!daily) {
+    daily = new FundDaily({
+      fund,
+      date: navDate,
+      nav,
+    });
+    em.persist(daily);
+  }
+
+  daily.nav = nav;
+  daily.navPremiumRate = calculatePremiumRate(daily.closePrice, nav, nav);
+  daily.premiumErrorRate = calculatePremiumRate(daily.estimatedNav, nav, nav);
+}
+
+function calculatePremiumRate(value: unknown, base: unknown, denominator: unknown) {
+  const numericValue = toFiniteNumber(value);
+  const numericBase = toFiniteNumber(base);
+  const numericDenominator = toFiniteNumber(denominator);
+  if (numericValue === undefined || numericBase === undefined) return undefined;
+  if (numericDenominator === undefined || numericDenominator <= 0) return undefined;
+  return Math.round(((numericValue - numericBase) / numericDenominator) * 10000) / 100;
+}
+
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isSameDate(value: Date | string | null | undefined, target: Date | string | null | undefined) {
+  if (!value || !target) return false;
+  const date = value instanceof Date ? value : new Date(value);
+  const targetDate = target instanceof Date ? target : new Date(target);
+  if (!Number.isFinite(date.getTime()) || !Number.isFinite(targetDate.getTime())) return false;
+
+  return date.getFullYear() === targetDate.getFullYear()
+    && date.getMonth() === targetDate.getMonth()
+    && date.getDate() === targetDate.getDate();
+}
+
+export async function syncIndexDataOnce() {
+  await fetchAll();
+}
+
+export async function snapshotFundDailyOnce() {
+  await snapshotFundDaily();
 }
 
 export function startIndexScheduler() {

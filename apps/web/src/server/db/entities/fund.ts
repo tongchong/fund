@@ -4,6 +4,7 @@ import { CURRENT_TIMESTAMP, DATETIME_TYPE } from "src/utils/orm";
 export class Fund {
   id!: number;
   favorite: boolean;
+  reviewed: boolean;
   category?: string;
   fundType?: string;
   code: string;
@@ -19,6 +20,7 @@ export class Fund {
   holdingPeriod?: string;
   purchaseStatus?: string;
   company?: string;
+  source?: string;
   navDate?: Date;
   nav?: number;
   estimatedNav?: number;
@@ -29,6 +31,7 @@ export class Fund {
 
   constructor(init: {
     favorite?: boolean;
+    reviewed?: boolean;
     category?: string;
     fundType?: string;
     code: string;
@@ -44,6 +47,7 @@ export class Fund {
     holdingPeriod?: string;
     purchaseStatus?: string;
     company?: string;
+    source?: string;
     navDate?: Date;
     nav?: number;
     estimatedNav?: number;
@@ -51,6 +55,7 @@ export class Fund {
     holdingsJson?: string;
   }) {
     this.favorite = init.favorite ?? false;
+    this.reviewed = init.reviewed ?? false;
     this.category = init.category;
     this.fundType = init.fundType;
     this.code = init.code;
@@ -66,6 +71,7 @@ export class Fund {
     this.holdingPeriod = init.holdingPeriod;
     this.purchaseStatus = init.purchaseStatus;
     this.company = init.company;
+    this.source = init.source;
     this.navDate = init.navDate;
     this.nav = init.nav;
     this.estimatedNav = init.estimatedNav;
@@ -82,6 +88,7 @@ export const fundEntitySchema = new EntitySchema({
 
 fundEntitySchema.addPrimaryKey("id", Number);
 fundEntitySchema.addProperty("favorite", Boolean, { default: false, columnType: "tinyint" });
+fundEntitySchema.addProperty("reviewed", Boolean, { default: false, columnType: "tinyint" });
 fundEntitySchema.addProperty("category", String, { nullable: true, length: 64 });
 fundEntitySchema.addProperty("fundType", String, { nullable: true, length: 32 });
 fundEntitySchema.addProperty("code", String, { length: 32, unique: true });
@@ -97,6 +104,7 @@ fundEntitySchema.addProperty("redemptionFee7d", Number, { nullable: true, column
 fundEntitySchema.addProperty("holdingPeriod", String, { nullable: true, length: 64 });
 fundEntitySchema.addProperty("purchaseStatus", String, { nullable: true, length: 32 });
 fundEntitySchema.addProperty("company", String, { nullable: true, length: 128 });
+fundEntitySchema.addProperty("source", String, { nullable: true, length: 32 });
 fundEntitySchema.addProperty("navDate", Date, { nullable: true, columnType: "DATE" });
 fundEntitySchema.addProperty("nav", Number, { nullable: true, columnType: "decimal(12,4)" });
 fundEntitySchema.addProperty("estimatedNav", Number, { nullable: true, columnType: "decimal(12,4)" });

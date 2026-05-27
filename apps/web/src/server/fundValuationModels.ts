@@ -12,7 +12,10 @@ export interface HoldingItem {
 export interface MarketQuoteItem {
   code: string;
   name: string;
+  currentPrice?: number;
   changePercent?: number;
+  previousClose?: number;
+  updateTime?: Date | string;
 }
 
 export interface FundValuationContext {
@@ -64,11 +67,23 @@ interface Adjusted161815Holding {
   fallbackStage1Return: number;
 }
 
+interface Inferred161815Weights {
+  goldEtfs: number;
+  oilEtcs: number;
+  COMT: number;
+  BCD: number;
+  SLV: number;
+  cashOther: number;
+}
+
 interface Adjusted161815Config {
   fundCode: string;
+  inferredWeights: Inferred161815Weights;
   includeComtBcdLookthrough: boolean;
+  fxExposure: number;
   holdings: Adjusted161815Holding[];
   lookthrough: Record<string, Record<string, number>>;
+  effectiveFutureOverlay?: Record<string, number>;
   manualFutureReturns: Record<string, number>;
 }
 
@@ -119,74 +134,144 @@ const fundSpecificValuationModels: Record<string, FundValuationModel> = Object.f
   currentFundCodes.map((code) => [code, createCodeNamedValuationModel(code)]),
 );
 
+
+const inferredWeights161815V10: Inferred161815Weights = {
+  goldEtfs: 0.350,
+  oilEtcs: 0.130,
+  COMT: 0.170,
+  BCD: 0.095,
+  SLV: 0.045,
+  cashOther: 0.210,
+};
+
+const oilEtcSplit161815 = {
+  brent: 0.6033333333,
+  wti: 0.3966666667,
+};
+
+const goldEtfSplit161815 = {
+  IAU: 0.3002777778,
+  GLD: 0.2747222222,
+  AAAU: 0.2163888889,
+  SGOL: 0.2086111111,
+};
+
+const effectiveFutureOverlay161815V10: Record<string, number> = {
+  "GC=F": 0.376463,
+  "BZ=F": 0.117357,
+  "CL=F": 0.088116,
+  "SI=F": 0.049843,
+  "HG=F": 0.015350,
+  "NG=F": 0.013073,
+  "HO=F": 0.019963,
+  "RB=F": 0.007597,
+  "ZC=F": 0.013250,
+  "ZW=F": 0.010423,
+  "ZS=F": 0.010423,
+  "ZM=F": 0.002827,
+  "ZL=F": 0.002827,
+  "LE=F": 0.012543,
+  "GF=F": 0.004417,
+  "HE=F": 0.007243,
+  "KC=F": 0.006007,
+  "SB=F": 0.005830,
+  "CC=F": 0.003710,
+  "CT=F": 0.003003,
+  "ALI=F": 0.011130,
+  NICKEL_PROXY: 0.003710,
+  ZINC_PROXY: 0.003710,
+  LEAD_PROXY: 0.001943,
+};
+
+const futureMarketQuoteAliases161815: Record<string, string[]> = {
+  "GC=F": ["HF_GC"],
+  "BZ=F": ["HF_OIL"],
+  "CL=F": ["HF_CL"],
+  "SI=F": ["HF_SI"],
+  "HG=F": ["HF_CAD"],
+};
+
+const yahooFutureFetchAllowlist161815 = new Set(["GC=F", "BZ=F", "CL=F", "SI=F", "HG=F"]);
+const futureQuoteStaleMs161815 = 5 * 60 * 1000;
+
 const adjusted161815Config: Adjusted161815Config = {
   fundCode: "161815",
+  inferredWeights: inferredWeights161815V10,
   includeComtBcdLookthrough: true,
+  fxExposure: 1 - inferredWeights161815V10.cashOther,
   holdings: [
+    // V10 原油ETC：合计 13.0%
+    // 按原 BRNT/CRUD 比例分摊
     {
       symbol: "BRNT.L",
       name: "WisdomTree Brent Crude Oil",
-      weight: 0.1025,
+      weight: inferredWeights161815V10.oilEtcs * oilEtcSplit161815.brent,
       overlayFuture: "BZ=F",
       fallbackStage1Return: -0.0169,
     },
     {
       symbol: "CRUD.L",
       name: "WisdomTree WTI Crude Oil",
-      weight: 0.0675,
+      weight: inferredWeights161815V10.oilEtcs * oilEtcSplit161815.wti,
       overlayFuture: "CL=F",
       fallbackStage1Return: -0.0143,
     },
+
+    // V10 黄金ETF：合计 35.0%
+    // 按原 IAU/GLD/AAAU/SGOL 比例分摊
     {
       symbol: "IAU",
       name: "iShares Gold Trust",
-      weight: 0.1435,
+      weight: inferredWeights161815V10.goldEtfs * goldEtfSplit161815.IAU,
       overlayFuture: "GC=F",
       fallbackStage1Return: -0.00748,
     },
     {
       symbol: "GLD",
       name: "SPDR Gold Shares",
-      weight: 0.1313,
+      weight: inferredWeights161815V10.goldEtfs * goldEtfSplit161815.GLD,
       overlayFuture: "GC=F",
       fallbackStage1Return: -0.00762,
     },
     {
       symbol: "AAAU",
       name: "Goldman Sachs Physical Gold ETF",
-      weight: 0.1034,
+      weight: inferredWeights161815V10.goldEtfs * goldEtfSplit161815.AAAU,
       overlayFuture: "GC=F",
       fallbackStage1Return: -0.00735,
     },
     {
       symbol: "SGOL",
       name: "abrdn Physical Gold Shares ETF",
-      weight: 0.0998,
+      weight: inferredWeights161815V10.goldEtfs * goldEtfSplit161815.SGOL,
       overlayFuture: "GC=F",
       fallbackStage1Return: -0.00784,
     },
+
+    // V10 综合商品与白银；cashOther 21.0% 不参与盘中商品波动
     {
       symbol: "COMT",
       name: "iShares GSCI Commodity Dynamic Roll Strategy ETF",
-      weight: 0.1117,
+      weight: inferredWeights161815V10.COMT,
       overlayFuture: null,
       fallbackStage1Return: -0.00425,
     },
     {
       symbol: "BCD",
       name: "abrdn Bloomberg All Commodity Longer Dated ETF",
-      weight: 0.0636,
+      weight: inferredWeights161815V10.BCD,
       overlayFuture: null,
       fallbackStage1Return: -0.00935,
     },
     {
       symbol: "SLV",
       name: "iShares Silver Trust",
-      weight: 0.0231,
+      weight: inferredWeights161815V10.SLV,
       overlayFuture: "SI=F",
       fallbackStage1Return: -0.04865,
     },
   ],
+
   lookthrough: {
     COMT: {
       "CL=F": 0.177892,
@@ -203,14 +288,38 @@ const adjusted161815Config: Adjusted161815Config = {
       "HG=F": 0.063620,
     },
   },
+
+  effectiveFutureOverlay: effectiveFutureOverlay161815V10,
+
   manualFutureReturns: {
-    "GC=F": -0.0220,
-    "SI=F": -0.0755,
-    "BZ=F": 0.01655,
-    "CL=F": 0.01930,
-    "HG=F": -0.0324,
+    "GC=F": 0,
+    "SI=F": 0,
+    "BZ=F": 0,
+    "CL=F": 0,
+    "HG=F": 0,
+    "NG=F": 0,
+    "HO=F": 0,
+    "RB=F": 0,
+    "ZC=F": 0,
+    "ZW=F": 0,
+    "ZS=F": 0,
+    "ZM=F": 0,
+    "ZL=F": 0,
+    "LE=F": 0,
+    "GF=F": 0,
+    "HE=F": 0,
+    "KC=F": 0,
+    "SB=F": 0,
+    "CC=F": 0,
+    "CT=F": 0,
+    "ALI=F": 0,
+    NICKEL_PROXY: 0,
+    ZINC_PROXY: 0,
+    LEAD_PROXY: 0,
   },
 };
+
+assert161815Config(adjusted161815Config);
 
 setFundValuationModel("161815", (fund, context) => estimate161815Adjusted(fund, context, adjusted161815Config));
 
@@ -220,7 +329,7 @@ async function estimate161815Adjusted(
   config: Adjusted161815Config,
 ): Promise<FundValuationResult> {
   const base = resolve161815Base(fund);
-  if (!base) return { modelName: "161815-adjusted-yahoo-futures" };
+  if (!base) return { modelName: "161815-adjusted-v10-full-lookthrough" };
 
   const etfCloseDate = getLatestCompletedEtfCloseDate(context.now);
   const stage1Rows = await Promise.all(
@@ -242,24 +351,53 @@ async function estimate161815Adjusted(
   const overlayWeights = buildOverlayWeights(config);
   const stage2Rows = await Promise.all(
     overlayWeights.map(async (item) => {
-      try {
-        const future = await fetchCurrentFutureReturn(item.symbol);
-        return { contribution: item.weight * future.return };
-      } catch {
-        const fallback = config.manualFutureReturns[item.symbol] ?? 0;
-        return { contribution: item.weight * fallback };
-      }
+      const itemReturn = await resolveFutureReturn(item.symbol, context, config);
+      return { contribution: item.weight * itemReturn };
     }),
   );
 
   const stage2AssetReturn = stage2Rows.reduce((sum, row) => sum + row.contribution, 0);
-  const navNow = navAfterStage1 * (1 + stage2AssetReturn);
+  const fxReturn = await resolveUsdCnyIntradayReturn(context);
+  const stage2FxReturn = config.fxExposure * fxReturn;
+  const navNow = navAfterStage1 * (1 + stage2AssetReturn + stage2FxReturn);
 
   return {
     estimatedNav: roundNav(navNow),
     estimatedChangePercent: roundPercent((navNow / base.baseNav - 1) * 100),
-    modelName: "161815-adjusted-yahoo-futures",
+    modelName: "161815-adjusted-v10-full-lookthrough",
   };
+}
+
+async function resolveUsdCnyIntradayReturn(context: FundValuationContext) {
+  const quoteReturn = resolveUsdCnyReturnFromMarketQuotes(context);
+  if (quoteReturn !== undefined) return quoteReturn;
+
+  try {
+    const fx = await fetchCurrentFutureReturn("CNY=X");
+    return fx.return;
+  } catch {
+    return 0;
+  }
+}
+
+function resolveUsdCnyReturnFromMarketQuotes(context: FundValuationContext) {
+  const symbols = ["USDCNY", "CNY=X", "USD/CNY", "FX_USDCNY"];
+
+  for (const symbol of symbols) {
+    const quote = context.marketQuotes.get(symbol);
+    if (!quote) continue;
+
+    const changePercent = Number(quote.changePercent);
+    if (Number.isFinite(changePercent)) return changePercent / 100;
+
+    const currentPrice = Number(quote.currentPrice);
+    const previousClose = Number(quote.previousClose);
+    if (Number.isFinite(currentPrice) && Number.isFinite(previousClose) && previousClose > 0) {
+      return currentPrice / previousClose - 1;
+    }
+  }
+
+  return undefined;
 }
 
 function resolve161815Base(fund: Fund): Dynamic161815Base | undefined {
@@ -433,28 +571,121 @@ async function fetchCurrentFutureReturn(symbol: string): Promise<YahooFutureRetu
 
 
 function buildOverlayWeights(config: Adjusted161815Config) {
+  if (config.effectiveFutureOverlay) {
+    return Object.entries(config.effectiveFutureOverlay)
+      .filter(([, weight]) => Number.isFinite(weight) && Math.abs(weight) > 0)
+      .map(([symbol, weight]) => ({ symbol, weight }));
+  }
+
   const map = new Map<string, number>();
   const add = (symbol: string | null, weight: number) => {
     if (!symbol || !weight) return;
     map.set(symbol, (map.get(symbol) || 0) + weight);
   };
 
-  for (const holding of config.holdings) {
-    add(holding.overlayFuture, holding.weight);
-  }
+  const weights = config.inferredWeights;
+  add("GC=F", weights.goldEtfs);
+  add("BZ=F", weights.oilEtcs * oilEtcSplit161815.brent);
+  add("CL=F", weights.oilEtcs * oilEtcSplit161815.wti);
+  add("SI=F", weights.SLV);
 
   if (config.includeComtBcdLookthrough) {
-    for (const holding of config.holdings) {
-      const lookthrough = config.lookthrough[holding.symbol];
-      if (!lookthrough) continue;
-
-      for (const [future, componentWeight] of Object.entries(lookthrough)) {
-        add(future, holding.weight * componentWeight);
-      }
-    }
+    addLookthroughOverlay(map, config.lookthrough.COMT, weights.COMT);
+    addLookthroughOverlay(map, config.lookthrough.BCD, weights.BCD);
   }
 
   return [...map.entries()].map(([symbol, weight]) => ({ symbol, weight }));
+}
+
+function addLookthroughOverlay(map: Map<string, number>, lookthrough: Record<string, number> | undefined, weight: number) {
+  if (!lookthrough) return;
+
+  for (const [future, componentWeight] of Object.entries(lookthrough)) {
+    map.set(future, (map.get(future) || 0) + weight * componentWeight);
+  }
+}
+
+async function resolveFutureReturn(
+  symbol: string,
+  context: FundValuationContext,
+  config: Adjusted161815Config,
+): Promise<number> {
+  const directReturn = resolveFutureReturnFromMarketQuotes(symbol, context);
+  if (directReturn !== undefined) return directReturn;
+
+  const proxySymbol = getProxyFutureSymbol(symbol);
+  const proxyReturn = proxySymbol !== symbol ? resolveFutureReturnFromMarketQuotes(proxySymbol, context) : undefined;
+  if (proxyReturn !== undefined) return proxyReturn;
+
+  if (!yahooFutureFetchAllowlist161815.has(proxySymbol)) {
+    return config.manualFutureReturns[symbol] ?? config.manualFutureReturns[proxySymbol] ?? 0;
+  }
+
+  try {
+    const future = await fetchCurrentFutureReturn(proxySymbol);
+    return future.return;
+  } catch {
+    return config.manualFutureReturns[symbol] ?? config.manualFutureReturns[proxySymbol] ?? 0;
+  }
+}
+
+function resolveFutureReturnFromMarketQuotes(symbol: string, context: FundValuationContext) {
+  const symbols = [symbol, ...(futureMarketQuoteAliases161815[symbol] ?? [])];
+
+  for (const quoteSymbol of symbols) {
+    const quote = context.marketQuotes.get(quoteSymbol);
+    if (!quote || isStaleFutureQuote(quote, context.now)) continue;
+
+    const changePercent = Number(quote.changePercent);
+    if (Number.isFinite(changePercent)) {
+      return changePercent / 100;
+    }
+  }
+
+  return undefined;
+}
+
+function isStaleFutureQuote(quote: MarketQuoteItem, now: Date) {
+  if (!quote.code.startsWith("HF_")) return false;
+  if (!quote.updateTime) return false;
+
+  const updateTime = quote.updateTime instanceof Date ? quote.updateTime : new Date(quote.updateTime);
+  if (!Number.isFinite(updateTime.getTime())) return false;
+
+  return now.getTime() - updateTime.getTime() > futureQuoteStaleMs161815;
+}
+
+function getProxyFutureSymbol(symbol: string) {
+  if (symbol === "NICKEL_PROXY") return "HG=F";
+  if (symbol === "ZINC_PROXY") return "HG=F";
+  if (symbol === "LEAD_PROXY") return "HG=F";
+  return symbol;
+}
+
+function assert161815Config(config: Adjusted161815Config) {
+  const holdingsWeight = config.holdings.reduce((sum, holding) => sum + holding.weight, 0);
+  const expectedHoldingsWeight = 1 - config.inferredWeights.cashOther;
+
+  if (Math.abs(holdingsWeight - expectedHoldingsWeight) > 0.002) {
+    console.warn("[161815] holdings weight mismatch", {
+      holdingsWeight,
+      expectedHoldingsWeight,
+      cashOther: config.inferredWeights.cashOther,
+    });
+  }
+
+  if (config.effectiveFutureOverlay) {
+    const overlayWeight = Object.values(config.effectiveFutureOverlay).reduce((sum, weight) => sum + weight, 0);
+    const expectedOverlayWeight = 1 - config.inferredWeights.cashOther;
+
+    if (Math.abs(overlayWeight - expectedOverlayWeight) > 0.01) {
+      console.warn("[161815] effective futures overlay mismatch", {
+        overlayWeight,
+        expectedOverlayWeight,
+        cashOther: config.inferredWeights.cashOther,
+      });
+    }
+  }
 }
 
 function roundNav(value: number) {
@@ -497,7 +728,7 @@ export function parseFundHoldings(fund: Fund) {
 
 function getDefaultValuationModel(fund: Fund): FundValuationModel {
   if (fund.fundType === "A股股票基金") return stockHoldingWeightedModel;
-  if (fund.fundType === "QDII") return qdiiHoldingWeightedModel;
+  if (fund.fundType === "QDII" || fund.fundType === "港股股票基金") return qdiiHoldingWeightedModel;
   if (fund.fundType === "A股指数基金" || fund.fundType === "港股指数基金") return indexTrackingModel;
   return hybridFallbackModel;
 }
@@ -511,7 +742,8 @@ function indexTrackingModel(fund: Fund, context: FundValuationContext): FundValu
     };
   }
 
-  return estimateByChange(fund, fund.indexChangePercent, "index-change");
+  const holdingChange = fund.fundType === "港股指数基金" ? calculateHoldingChange(context.holdings) : undefined;
+  return estimateByChange(fund, fund.indexChangePercent ?? holdingChange, "index-change");
 }
 
 function stockHoldingWeightedModel(fund: Fund, context: FundValuationContext): FundValuationResult {

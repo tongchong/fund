@@ -8,6 +8,7 @@ export class FundDaily {
   fund!: Fund;
   date!: Date;
   closePrice?: number;
+  nav?: number;
   estimatedNav?: number;
   exchangeShares?: number;
   exchangeSharesChange?: number;
@@ -21,6 +22,7 @@ export class FundDaily {
     fund: Fund;
     date: Date;
     closePrice?: number;
+    nav?: number;
     estimatedNav?: number;
     exchangeShares?: number;
     exchangeSharesChange?: number;
@@ -31,6 +33,7 @@ export class FundDaily {
     this.fund = init.fund;
     this.date = init.date;
     this.closePrice = init.closePrice;
+    this.nav = init.nav;
     this.estimatedNav = init.estimatedNav;
     this.exchangeShares = init.exchangeShares;
     this.exchangeSharesChange = init.exchangeSharesChange;
@@ -52,6 +55,7 @@ fundDailyEntitySchema.addManyToOne(
 );
 fundDailyEntitySchema.addProperty("date", Date, { columnType: "DATE" });
 fundDailyEntitySchema.addProperty("closePrice", Number, { nullable: true, columnType: "decimal(12,4)" });
+fundDailyEntitySchema.addProperty("nav", Number, { nullable: true, columnType: "decimal(12,4)" });
 fundDailyEntitySchema.addProperty("estimatedNav", Number, { nullable: true, columnType: "decimal(12,4)" });
 fundDailyEntitySchema.addProperty("exchangeShares", Number, { nullable: true, columnType: "decimal(20,2)" });
 fundDailyEntitySchema.addProperty("exchangeSharesChange", Number, { nullable: true, columnType: "decimal(20,2)" });

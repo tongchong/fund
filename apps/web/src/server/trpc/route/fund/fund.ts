@@ -1,4 +1,5 @@
 import { Fund } from "src/server/db/entities/fund";
+import { FundDaily } from "src/server/db/entities/fundDaily";
 import { MarketIndex } from "src/server/db/entities/marketIndex";
 import { User } from "src/server/db/entities/user";
 import { resolveFundIndexRelation } from "src/server/fundIndexRelation";
@@ -9,8 +10,15 @@ import { z } from "zod";
 import { authProcedure } from "../../procedure/base";
 
 const nullableNumber = z.number().nullable();
-const fundSortFieldSchema = z.enum(["dailyChangePercent", "turnoverRate", "estimatedPremiumRate"]);
+const fundSortFieldSchema = z.enum([
+  "dailyChangePercent",
+  "turnoverRate",
+  "estimatedPremiumRate",
+  "purchaseFee",
+  "redemptionFee7d",
+]);
 const sortOrderSchema = z.enum(["asc", "desc"]);
+const fundTypeFilterSchema = z.enum(["index", "qdii", "stockWithoutIndex"]);
 
 function toNullableNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined) return null;
@@ -26,9 +34,31 @@ function formatDate(value: Date | string | null | undefined) {
   return dateText.includes("T") ? dateText.slice(0, 10) : dateText;
 }
 
+function formatDateTime(value: Date | string | null | undefined) {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+export const FundDailyItemSchema = z.object({
+  id: z.number(),
+  date: z.string().nullable(),
+  closePrice: nullableNumber,
+  nav: nullableNumber,
+  estimatedNav: nullableNumber,
+  exchangeShares: nullableNumber,
+  exchangeSharesChange: nullableNumber,
+  closePremiumRate: nullableNumber,
+  navPremiumRate: nullableNumber,
+  premiumErrorRate: nullableNumber,
+  createTime: z.string().nullable(),
+  updateTime: z.string().nullable(),
+});
+
 export const FundListItemSchema = z.object({
   id: z.number(),
   favorite: z.boolean(),
+  reviewed: z.boolean(),
   category: z.string().nullable(),
   fundType: z.string().nullable(),
   marketIndexCode: z.string().nullable(),
@@ -46,6 +76,7 @@ export const FundListItemSchema = z.object({
   holdingPeriod: z.string().nullable(),
   purchaseStatus: z.string().nullable(),
   company: z.string().nullable(),
+  source: z.string().nullable(),
   navDate: z.string().nullable(),
   nav: nullableNumber,
   estimatedNav: nullableNumber,
@@ -57,12 +88,14 @@ export const list = authProcedure
     ...paginationSchema.shape,
     keyword: z.string().trim().optional(),
     favoriteOnly: z.boolean().optional(),
+    reviewedOnly: z.boolean().optional(),
+    typeFilter: fundTypeFilterSchema.optional(),
     sortField: fundSortFieldSchema.optional(),
     sortOrder: sortOrderSchema.optional(),
   }))
   .output(z.object({ items: z.array(FundListItemSchema), count: z.number() }))
   .query(async ({ input, ctx }) => {
-    const { keyword, favoriteOnly, sortField, sortOrder } = input;
+    const { keyword, favoriteOnly, reviewedOnly, typeFilter, sortField, sortOrder } = input;
     const pageSize = input.pageSize ?? 50;
     const page = input.page ?? 1;
     const em = await forkEntityManager();
@@ -76,6 +109,10 @@ export const list = authProcedure
       where.code = { $in: favoriteCodes };
     }
 
+    if (reviewedOnly) {
+      where.reviewed = true;
+    }
+
     if (keyword) {
       where.$or = [
         { code: { $like: `%${keyword}%` } },
@@ -84,9 +121,10 @@ export const list = authProcedure
     }
 
     const items = await em.find(Fund, where, { orderBy: { code: "asc" } });
-    const count = items.length;
     const marketIndices = await em.find(MarketIndex, {});
-    const sortedItems = sortFundsForUser(items, favoriteCodeSet, marketIndices, sortField, sortOrder);
+    const filteredItems = filterFundsByType(items, marketIndices, typeFilter);
+    const count = filteredItems.length;
+    const sortedItems = sortFundsForUser(filteredItems, favoriteCodeSet, marketIndices, sortField, sortOrder);
     const pagedItems = sortedItems.slice((page - 1) * pageSize, page * pageSize);
 
     return {
@@ -97,6 +135,7 @@ export const list = authProcedure
         return {
           id: item.id,
           favorite: favoriteCodeSet.has(item.code),
+          reviewed: item.reviewed,
           category: indexRelation.name ?? item.category ?? null,
           fundType: item.fundType ?? null,
           marketIndexCode: indexRelation.code,
@@ -114,6 +153,7 @@ export const list = authProcedure
           holdingPeriod: item.holdingPeriod ?? null,
           purchaseStatus: item.purchaseStatus ?? null,
           company: item.company ?? null,
+          source: item.source ?? null,
           navDate: formatDate(item.navDate),
           nav: toNullableNumber(item.nav),
           estimatedNav: toNullableNumber(item.estimatedNav),
@@ -121,6 +161,61 @@ export const list = authProcedure
         };
       }),
       count,
+    };
+  });
+
+export const updateReviewed = authProcedure
+  .input(z.object({
+    code: z.string().trim().min(1),
+    reviewed: z.boolean().optional(),
+  }))
+  .output(z.object({ reviewed: z.boolean() }))
+  .mutation(async ({ input }) => {
+    const em = await forkEntityManager();
+    const fund = await em.findOneOrFail(Fund, { code: input.code });
+    const nextReviewed = input.reviewed ?? !fund.reviewed;
+
+    fund.reviewed = nextReviewed;
+    await em.flush();
+
+    return { reviewed: nextReviewed };
+  });
+
+export const daily = authProcedure
+  .input(z.object({
+    code: z.string().trim().min(1),
+  }))
+  .output(z.object({
+    fund: z.object({
+      code: z.string(),
+      name: z.string(),
+    }),
+    items: z.array(FundDailyItemSchema),
+  }))
+  .query(async ({ input }) => {
+    const em = await forkEntityManager();
+    const fund = await em.findOneOrFail(Fund, { code: input.code });
+    const items = await em.find(FundDaily, { fund }, { orderBy: { date: "desc", id: "desc" } });
+
+    return {
+      fund: {
+        code: fund.code,
+        name: fund.name,
+      },
+      items: items.map((item) => ({
+        id: item.id,
+        date: formatDate(item.date),
+        closePrice: toNullableNumber(item.closePrice),
+        nav: toNullableNumber(item.nav),
+        estimatedNav: toNullableNumber(item.estimatedNav),
+        exchangeShares: toNullableNumber(item.exchangeShares),
+        exchangeSharesChange: toNullableNumber(item.exchangeSharesChange),
+        closePremiumRate: toNullableNumber(item.closePremiumRate),
+        navPremiumRate: toNullableNumber(item.navPremiumRate),
+        premiumErrorRate: toNullableNumber(item.premiumErrorRate),
+        createTime: formatDateTime(item.createTime),
+        updateTime: formatDateTime(item.updateTime),
+      })),
     };
   });
 
@@ -164,6 +259,23 @@ function parseFavoriteFundCodes(value: string | null | undefined) {
   } catch {
     return [];
   }
+}
+
+
+function filterFundsByType(
+  items: Fund[],
+  marketIndices: MarketIndex[],
+  typeFilter: z.infer<typeof fundTypeFilterSchema> | undefined,
+) {
+  if (!typeFilter) return items;
+
+  return items.filter((fund) => {
+    const hasMarketIndex = hasQueriedMarketIndex(fund, marketIndices);
+
+    if (typeFilter === "index") return hasMarketIndex;
+    if (typeFilter === "qdii") return fund.fundType === "QDII";
+    return fund.fundType === "A股股票基金" && !hasMarketIndex;
+  });
 }
 
 function sortFundsForUser(
