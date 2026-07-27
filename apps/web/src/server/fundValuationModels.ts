@@ -1,4 +1,6 @@
 /* eslint-disable @stylistic/max-len */
+import { TextDecoder } from "node:util";
+
 import { Fund } from "src/server/db/entities/fund";
 
 export interface HoldingItem {
@@ -28,6 +30,7 @@ export interface FundValuationResult {
   estimatedNav?: number;
   estimatedChangePercent?: number;
   modelName: string;
+  valuationDetails?: FundValuationDetails;
 }
 
 export type FundValuationModel = (
@@ -35,49 +38,81 @@ export type FundValuationModel = (
   context: FundValuationContext,
 ) => FundValuationResult | Promise<FundValuationResult>;
 
-interface YahooDailyClose {
+type DailyCloseSource = "yahoo" | "nasdaq" | "lse";
+
+interface DailyClose {
   date: string;
   close: number;
+  source: DailyCloseSource;
 }
 
-interface YahooCloseReturn {
+interface CloseReturn {
   symbol: string;
   baseDate: string;
   baseClose: number;
   targetDate: string;
   targetClose: number;
   return: number;
-  source: "yahoo";
+  source: DailyCloseSource;
+  baseSource: DailyCloseSource;
+  targetSource: DailyCloseSource;
 }
 
 interface YahooFutureReturn {
   symbol: string;
   previousClose: number;
+  regularMarketPrice?: number;
   lastPrice: number;
   return: number;
   lastTime: string | null;
-  source: "yahoo";
+  source: "yahoo" | "tencent";
+}
+
+export interface FundValuationDetails {
+  modelName: string;
+  baseDate?: string;
+  totalWeight?: number;
+  cashWeight?: number;
+  estimatedChangePercent?: number;
+  components: FundValuationDetailComponent[];
+}
+
+export interface FundValuationDetailComponent {
+  symbol: string;
+  name: string;
+  weight: number;
+  source: string;
+  baseDate?: string;
+  baseClose?: number;
+  previousClose?: number;
+  regularMarketPrice?: number;
+  lastPrice?: number;
+  lastTime?: string | null;
+  totalChangePercent?: number;
+  regularChangePercent?: number;
+  extendedHoursChangePercent?: number;
+  contributionPercent?: number;
+  error?: string;
 }
 
 interface Adjusted161815Holding {
   symbol: string;
   name: string;
   weight: number;
+  stage1ReturnSymbol?: string;
   overlayFuture: string | null;
+  overlayMultiplier?: number;
   fallbackStage1Return: number;
 }
 
 interface Inferred161815Weights {
-  goldEtfs: number;
-  oilEtcs: number;
-  COMT: number;
-  BCD: number;
-  SLV: number;
   cashOther: number;
+  [key: string]: number;
 }
 
 interface Adjusted161815Config {
   fundCode: string;
+  modelName: string;
   inferredWeights: Inferred161815Weights;
   includeComtBcdLookthrough: boolean;
   fxExposure: number;
@@ -87,9 +122,32 @@ interface Adjusted161815Config {
   manualFutureReturns: Record<string, number>;
 }
 
-interface Dynamic161815Base {
+interface FundNavBase {
   baseDate: string;
   baseNav: number;
+}
+
+interface BenchmarkComponentConfig {
+  weight: number;
+  codes: string[];
+  names: string[];
+  fallbackChangePercent?: (fund: Fund) => number | undefined;
+}
+
+interface EquityBasketComponentConfig {
+  symbol: string;
+  name: string;
+  weight: number;
+  quoteCodes?: string[];
+  fallbackChangePercent?: (fund: Fund, context: FundValuationContext) => number | undefined;
+}
+
+interface EquityBasketConfig {
+  fundCode: string;
+  modelName: string;
+  cashWeight: number;
+  fxExposure?: number;
+  components: EquityBasketComponentConfig[];
 }
 
 export const currentFundCodes = [
@@ -135,13 +193,13 @@ const fundSpecificValuationModels: Record<string, FundValuationModel> = Object.f
 );
 
 
-const inferredWeights161815V10: Inferred161815Weights = {
-  goldEtfs: 0.350,
-  oilEtcs: 0.130,
-  COMT: 0.170,
-  BCD: 0.095,
-  SLV: 0.045,
-  cashOther: 0.210,
+const inferredWeights161815V11: Inferred161815Weights = {
+  goldEtfs: 0.322,
+  oilEtcs: 0.186,
+  COMT: 0.196,
+  BCD: 0.094,
+  SLV: 0.020,
+  cashOther: 0.182,
 };
 
 const oilEtcSplit161815 = {
@@ -156,31 +214,31 @@ const goldEtfSplit161815 = {
   SGOL: 0.2086111111,
 };
 
-const effectiveFutureOverlay161815V10: Record<string, number> = {
-  "GC=F": 0.376463,
-  "BZ=F": 0.117357,
-  "CL=F": 0.088116,
-  "SI=F": 0.049843,
-  "HG=F": 0.015350,
-  "NG=F": 0.013073,
-  "HO=F": 0.019963,
-  "RB=F": 0.007597,
-  "ZC=F": 0.013250,
-  "ZW=F": 0.010423,
-  "ZS=F": 0.010423,
-  "ZM=F": 0.002827,
-  "ZL=F": 0.002827,
-  "LE=F": 0.012543,
-  "GF=F": 0.004417,
-  "HE=F": 0.007243,
-  "KC=F": 0.006007,
-  "SB=F": 0.005830,
-  "CC=F": 0.003710,
-  "CT=F": 0.003003,
-  "ALI=F": 0.011130,
-  NICKEL_PROXY: 0.003710,
-  ZINC_PROXY: 0.003710,
-  LEAD_PROXY: 0.001943,
+const effectiveFutureOverlay161815V11: Record<string, number> = {
+  "GC=F": 0.349451,
+  "BZ=F": 0.155467,
+  "CL=F": 0.114643,
+  "SI=F": 0.024918,
+  "HG=F": 0.016674,
+  "NG=F": 0.014277,
+  "HO=F": 0.021800,
+  "RB=F": 0.008295,
+  "ZC=F": 0.014469,
+  "ZW=F": 0.011383,
+  "ZS=F": 0.011383,
+  "ZM=F": 0.003086,
+  "ZL=F": 0.003086,
+  "LE=F": 0.013698,
+  "GF=F": 0.004823,
+  "HE=F": 0.007910,
+  "KC=F": 0.006559,
+  "SB=F": 0.006366,
+  "CC=F": 0.004051,
+  "CT=F": 0.003280,
+  "ALI=F": 0.012154,
+  NICKEL_PROXY: 0.004051,
+  ZINC_PROXY: 0.004051,
+  LEAD_PROXY: 0.002122,
 };
 
 const futureMarketQuoteAliases161815: Record<string, string[]> = {
@@ -196,77 +254,80 @@ const futureQuoteStaleMs161815 = 5 * 60 * 1000;
 
 const adjusted161815Config: Adjusted161815Config = {
   fundCode: "161815",
-  inferredWeights: inferredWeights161815V10,
+  modelName: "161815-adjusted-v11-full-lookthrough",
+  inferredWeights: inferredWeights161815V11,
   includeComtBcdLookthrough: true,
-  fxExposure: 1 - inferredWeights161815V10.cashOther,
+  fxExposure: 1 - inferredWeights161815V11.cashOther,
   holdings: [
-    // V10 原油ETC：合计 13.0%
+    // V11 原油ETC：合计 18.6%
     // 按原 BRNT/CRUD 比例分摊
     {
       symbol: "BRNT.L",
       name: "WisdomTree Brent Crude Oil",
-      weight: inferredWeights161815V10.oilEtcs * oilEtcSplit161815.brent,
+      weight: inferredWeights161815V11.oilEtcs * oilEtcSplit161815.brent,
+      stage1ReturnSymbol: "BZ=F",
       overlayFuture: "BZ=F",
       fallbackStage1Return: -0.0169,
     },
     {
       symbol: "CRUD.L",
       name: "WisdomTree WTI Crude Oil",
-      weight: inferredWeights161815V10.oilEtcs * oilEtcSplit161815.wti,
+      weight: inferredWeights161815V11.oilEtcs * oilEtcSplit161815.wti,
+      stage1ReturnSymbol: "CL=F",
       overlayFuture: "CL=F",
       fallbackStage1Return: -0.0143,
     },
 
-    // V10 黄金ETF：合计 35.0%
+    // V11 黄金ETF：合计 32.2%
     // 按原 IAU/GLD/AAAU/SGOL 比例分摊
     {
       symbol: "IAU",
       name: "iShares Gold Trust",
-      weight: inferredWeights161815V10.goldEtfs * goldEtfSplit161815.IAU,
+      weight: inferredWeights161815V11.goldEtfs * goldEtfSplit161815.IAU,
       overlayFuture: "GC=F",
       fallbackStage1Return: -0.00748,
     },
     {
       symbol: "GLD",
       name: "SPDR Gold Shares",
-      weight: inferredWeights161815V10.goldEtfs * goldEtfSplit161815.GLD,
+      weight: inferredWeights161815V11.goldEtfs * goldEtfSplit161815.GLD,
       overlayFuture: "GC=F",
       fallbackStage1Return: -0.00762,
     },
     {
       symbol: "AAAU",
       name: "Goldman Sachs Physical Gold ETF",
-      weight: inferredWeights161815V10.goldEtfs * goldEtfSplit161815.AAAU,
+      weight: inferredWeights161815V11.goldEtfs * goldEtfSplit161815.AAAU,
       overlayFuture: "GC=F",
       fallbackStage1Return: -0.00735,
     },
     {
       symbol: "SGOL",
       name: "abrdn Physical Gold Shares ETF",
-      weight: inferredWeights161815V10.goldEtfs * goldEtfSplit161815.SGOL,
+      weight: inferredWeights161815V11.goldEtfs * goldEtfSplit161815.SGOL,
       overlayFuture: "GC=F",
       fallbackStage1Return: -0.00784,
     },
 
-    // V10 综合商品与白银；cashOther 21.0% 不参与盘中商品波动
+    // V11 综合商品与白银；cashOther 18.2% 不参与盘中商品波动
     {
       symbol: "COMT",
       name: "iShares GSCI Commodity Dynamic Roll Strategy ETF",
-      weight: inferredWeights161815V10.COMT,
+      weight: inferredWeights161815V11.COMT,
       overlayFuture: null,
       fallbackStage1Return: -0.00425,
     },
     {
       symbol: "BCD",
       name: "abrdn Bloomberg All Commodity Longer Dated ETF",
-      weight: inferredWeights161815V10.BCD,
+      weight: inferredWeights161815V11.BCD,
       overlayFuture: null,
       fallbackStage1Return: -0.00935,
     },
     {
       symbol: "SLV",
       name: "iShares Silver Trust",
-      weight: inferredWeights161815V10.SLV,
+      weight: inferredWeights161815V11.SLV,
       overlayFuture: "SI=F",
       fallbackStage1Return: -0.04865,
     },
@@ -289,7 +350,7 @@ const adjusted161815Config: Adjusted161815Config = {
     },
   },
 
-  effectiveFutureOverlay: effectiveFutureOverlay161815V10,
+  effectiveFutureOverlay: effectiveFutureOverlay161815V11,
 
   manualFutureReturns: {
     "GC=F": 0,
@@ -319,17 +380,745 @@ const adjusted161815Config: Adjusted161815Config = {
   },
 };
 
-assert161815Config(adjusted161815Config);
+const adjusted165513Config: Adjusted161815Config = {
+  fundCode: "165513",
+  modelName: "165513-adjusted-gold-heavy-v1",
+  inferredWeights: {
+    goldEtfs: 0.8039,
+    cashOther: 0.1961,
+  },
+  includeComtBcdLookthrough: false,
+  fxExposure: 0.8039,
+  holdings: [
+    {
+      symbol: "SGLD.L",
+      name: "Invesco Physical Gold ETC",
+      weight: 0.1625,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "GLDM",
+      name: "SPDR Gold MiniShares",
+      weight: 0.1540,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "SGOL",
+      name: "abrdn Physical Gold Shares ETF",
+      weight: 0.1477,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "IAU",
+      name: "iShares Gold Trust",
+      weight: 0.1477,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "GLD",
+      name: "SPDR Gold Shares",
+      weight: 0.1302,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "DGP",
+      name: "DB Gold Double Long ETN",
+      weight: 0.0618,
+      overlayFuture: "GC=F",
+      overlayMultiplier: 2,
+      fallbackStage1Return: 0,
+    },
+  ],
+  lookthrough: {},
+  manualFutureReturns: adjusted161815Config.manualFutureReturns,
+};
+
+const adjusted161116Config: Adjusted161815Config = {
+  fundCode: "161116",
+  modelName: "161116-adjusted-gold-fof-v1",
+  inferredWeights: {
+    goldEtfs: 0.9246,
+    cashOther: 0.0754,
+  },
+  includeComtBcdLookthrough: false,
+  fxExposure: 0.9246,
+  holdings: [
+    {
+      symbol: "GLDM",
+      name: "SPDR Gold MiniShares",
+      weight: 0.1954,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "GLD",
+      name: "SPDR Gold Shares",
+      weight: 0.1953,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "IAU",
+      name: "iShares Gold Trust",
+      weight: 0.1951,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "SGOL",
+      name: "abrdn Physical Gold Shares ETF",
+      weight: 0.1833,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "AUUSI.SW",
+      name: "UBS ETF CH-Gold",
+      weight: 0.1555,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+  ],
+  lookthrough: {},
+  manualFutureReturns: adjusted161815Config.manualFutureReturns,
+};
+
+const adjusted160216Config: Adjusted161815Config = {
+  fundCode: "160216",
+  modelName: "160216-adjusted-commodity-holdings-v1",
+  inferredWeights: {
+    goldEtfs: 0.4637,
+    oilEtfs: 0.1455,
+    silverEtfs: 0.1157,
+    copperEtfs: 0.1095,
+    bondEtfs: 0.0547,
+    cashOther: 0.1109,
+  },
+  includeComtBcdLookthrough: false,
+  fxExposure: 0.8891,
+  holdings: [
+    {
+      symbol: "SGOL",
+      name: "abrdn Physical Gold Shares ETF",
+      weight: 0.1788,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "GLD",
+      name: "SPDR Gold Shares",
+      weight: 0.1474,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "GLDM",
+      name: "SPDR Gold MiniShares",
+      weight: 0.1181,
+      overlayFuture: "GC=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "USO",
+      name: "United States Oil Fund",
+      weight: 0.1167,
+      overlayFuture: "CL=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "SLV",
+      name: "iShares Silver Trust",
+      weight: 0.1157,
+      overlayFuture: "SI=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "CPER",
+      name: "United States Copper Index Fund",
+      weight: 0.1095,
+      overlayFuture: "HG=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "TMF",
+      name: "Direxion Daily 20+ Year Treasury Bull 3X Shares",
+      weight: 0.0402,
+      overlayFuture: null,
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "XOP",
+      name: "SPDR S&P Oil & Gas Exploration & Production ETF",
+      weight: 0.0288,
+      overlayFuture: "CL=F",
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "NUGT",
+      name: "Direxion Daily Gold Miners Index Bull 2X Shares",
+      weight: 0.0197,
+      overlayFuture: "GC=F",
+      overlayMultiplier: 2,
+      fallbackStage1Return: 0,
+    },
+    {
+      symbol: "IEI",
+      name: "iShares 3-7 Year Treasury Bond ETF",
+      weight: 0.0145,
+      overlayFuture: null,
+      fallbackStage1Return: 0,
+    },
+  ],
+  lookthrough: {},
+  manualFutureReturns: adjusted161815Config.manualFutureReturns,
+};
+
+[
+  adjusted161815Config,
+  adjusted165513Config,
+  adjusted161116Config,
+  adjusted160216Config,
+].forEach(assert161815Config);
 
 setFundValuationModel("161815", (fund, context) => estimate161815Adjusted(fund, context, adjusted161815Config));
+setFundValuationModel("165513", (fund, context) => estimate161815Adjusted(fund, context, adjusted165513Config));
+setFundValuationModel("161116", (fund, context) => estimate161815Adjusted(fund, context, adjusted161116Config));
+setFundValuationModel("160216", (fund, context) => estimate161815Adjusted(fund, context, adjusted160216Config));
+setFundValuationModel("160644", estimate160644HongKongUsInternet);
+setFundValuationModel("501227", estimate501227BenchmarkComposite);
+setFundValuationModel("501208", estimate501208PartialHoldingsBenchmark);
+setFundValuationModel("162411", estimate162411OilGasQdii);
+
+const demandDepositAnnualRate = 0.05;
+const adjusted160644Config: EquityBasketConfig = {
+  fundCode: "160644",
+  modelName: "160644-hk-us-internet-adjusted-v10-zhipu",
+  cashWeight: 27,
+  components: [
+    { symbol: "2513.HK", name: "智谱", weight: 9.5, quoteCodes: ["02513", "02513.HK", "2513.HK"]},
+    { symbol: "SNDK", name: "SanDisk", weight: 14 },
+    { symbol: "MU", name: "Micron Technology", weight: 10 },
+    { symbol: "WDC", name: "Western Digital/其他存储链代理", weight: 4 },
+    { symbol: "STX", name: "Seagate/其他存储链代理", weight: 4 },
+    { symbol: "TSM", name: "Taiwan Semiconductor Manufacturing", weight: 10 },
+    { symbol: "NVDA", name: "NVIDIA", weight: 7 },
+    { symbol: "ASML", name: "ASML Holding", weight: 6.5 },
+    { symbol: "AVGO", name: "Broadcom", weight: 5.5 },
+    { symbol: "GOOGL", name: "Alphabet", weight: 2 },
+    {
+      symbol: "^HSTECH",
+      name: "腾讯/阿里/中海油等原港股核心代理",
+      weight: 0.5,
+      quoteCodes: ["HSTECH", "^HSTECH"],
+      fallbackChangePercent: (fund) => fund.indexChangePercent,
+    },
+  ],
+};
+const benchmark501208RemainderComponents: BenchmarkComponentConfig[] = [
+  {
+    weight: 0.6,
+    codes: ["000906"],
+    names: ["中证800"],
+    fallbackChangePercent: () => 0,
+  },
+  {
+    weight: 0.2,
+    codes: ["HSI"],
+    names: ["恒生指数"],
+    fallbackChangePercent: () => 0,
+  },
+  {
+    weight: 0.2,
+    codes: [],
+    names: ["银行活期存款利率"],
+    fallbackChangePercent: () => demandDepositAnnualRate / 365,
+  },
+];
+
+const benchmark501227Components: BenchmarkComponentConfig[] = [
+  {
+    weight: 0.9,
+    codes: ["000922"],
+    names: ["中证红利指数", "中证红利"],
+    fallbackChangePercent: (fund) => fund.indexChangePercent,
+  },
+  {
+    weight: 0.1,
+    codes: ["CB", "CBA00101"],
+    names: ["中国债券综合全价指数", "中债综合全价指数", "中债综合指数(总值)全价指数"],
+    fallbackChangePercent: () => 0,
+  },
+];
+
+function estimate501227BenchmarkComposite(fund: Fund, context: FundValuationContext): FundValuationResult {
+  if (hasTodayNav(fund, context.now)) {
+    return {
+      estimatedNav: fund.nav,
+      estimatedChangePercent: 0,
+      modelName: "501227-benchmark-composite-today-nav",
+    };
+  }
+
+  const benchmarkChangePercent = benchmark501227Components.reduce((sum, component) => {
+    const changePercent = resolveBenchmarkComponentChangePercent(component, fund, context);
+    return sum + component.weight * (changePercent ?? 0);
+  }, 0);
+
+  return estimateByChange(fund, benchmarkChangePercent, "501227-benchmark-composite");
+}
+
+function estimate501208PartialHoldingsBenchmark(fund: Fund, context: FundValuationContext): FundValuationResult {
+  if (hasTodayNav(fund, context.now)) {
+    return {
+      estimatedNav: fund.nav,
+      estimatedChangePercent: 0,
+      modelName: "501208-partial-holdings-benchmark-today-nav",
+    };
+  }
+
+  if (fund.nav === undefined || fund.nav <= 0) return { modelName: "501208-partial-holdings-benchmark" };
+
+  let coveredWeight = 0;
+  let coveredContribution = 0;
+  context.holdings.forEach((holding) => {
+    if (holding.changePercent === undefined || !Number.isFinite(holding.changePercent)) return;
+    if (!Number.isFinite(holding.weight) || holding.weight <= 0) return;
+    coveredWeight += holding.weight;
+    coveredContribution += holding.weight * holding.changePercent;
+  });
+
+  const boundedCoveredWeight = Math.min(Math.max(coveredWeight, 0), 100);
+  const remainderWeight = 100 - boundedCoveredWeight;
+  const remainderChangePercent = benchmark501208RemainderComponents.reduce((sum, component) => {
+    const changePercent = resolveBenchmarkComponentChangePercent(component, fund, context) ?? 0;
+    return sum + component.weight * changePercent;
+  }, 0);
+  const estimatedChangePercent = (coveredContribution + remainderWeight * remainderChangePercent) / 100;
+
+  return estimateByChange(fund, estimatedChangePercent, "501208-partial-holdings-benchmark");
+}
+
+function resolveBenchmarkComponentChangePercent(
+  component: BenchmarkComponentConfig,
+  fund: Fund,
+  context: FundValuationContext,
+) {
+  for (const code of component.codes) {
+    const quote = context.marketQuotes.get(code);
+    const changePercent = quote ? Number(quote.changePercent) : undefined;
+    if (Number.isFinite(changePercent)) return changePercent;
+  }
+
+  const names = component.names.map(normalizeBenchmarkName);
+  for (const quote of context.marketQuotes.values()) {
+    const quoteName = normalizeBenchmarkName(quote.name);
+    if (!quoteName) continue;
+    const matched = names.some((name) => quoteName === name || quoteName.includes(name) || name.includes(quoteName));
+    if (!matched) continue;
+
+    const changePercent = Number(quote.changePercent);
+    if (Number.isFinite(changePercent)) return changePercent;
+  }
+
+  return component.fallbackChangePercent?.(fund);
+}
+
+function normalizeBenchmarkName(value: string) {
+  return value.replace(/\s/g, "").toLowerCase();
+}
+
+const oilGas162411IndexSymbols = ["^SPSIOP", "SPSIOP", "^SPOGEPSI", "SPXSOP"];
+const oilGas162411FutureSymbols = ["SXO=F", "SXO"];
+const oilGas162411EtfProxySymbols = ["XOP"];
+
+async function estimate160644HongKongUsInternet(
+  fund: Fund,
+  context: FundValuationContext,
+): Promise<FundValuationResult> {
+  const base = resolveFundNavBase(fund);
+  if (!base) return { modelName: adjusted160644Config.modelName };
+
+  const totalWeight = adjusted160644Config.cashWeight
+    + adjusted160644Config.components.reduce((sum, component) => sum + component.weight, 0);
+  const componentRows = await Promise.all(
+    adjusted160644Config.components.map(async (component) => {
+      const detail = await resolveEquityBasketComponentDetail(component, fund, context, base.baseDate);
+      return {
+        contribution: component.weight * ((detail.totalChangePercent ?? 0) / 100),
+        detail,
+      };
+    }),
+  );
+  const componentChangePercent = componentRows.reduce((sum, row) => sum + row.contribution, 0);
+  const cashContribution = adjusted160644Config.cashWeight * 0;
+  const fxReturn = await resolveUsdCnyIntradayReturn(context);
+  const fxContribution = (adjusted160644Config.fxExposure ?? 0) * fxReturn;
+  const estimatedChangePercent = componentChangePercent + cashContribution + fxContribution;
+  const result = estimateByChange(fund, estimatedChangePercent, adjusted160644Config.modelName);
+  const fxDetail: FundValuationDetailComponent | undefined = adjusted160644Config.fxExposure === undefined
+    ? undefined
+    : {
+      symbol: "USD/CNY",
+      name: "美元兑人民币汇率修正",
+      weight: adjusted160644Config.fxExposure,
+      source: "fx",
+      totalChangePercent: roundPercent(fxReturn * 100),
+      contributionPercent: roundPercent(fxContribution),
+    };
+
+  return {
+    ...result,
+    valuationDetails: {
+      modelName: adjusted160644Config.modelName,
+      baseDate: base.baseDate,
+      totalWeight: roundPercent(totalWeight),
+      cashWeight: adjusted160644Config.cashWeight,
+      estimatedChangePercent: estimatedChangePercent === undefined ? undefined : roundPercent(estimatedChangePercent),
+      components: [
+        ...componentRows.map((row) => ({
+          ...row.detail,
+          contributionPercent: roundPercent(row.contribution),
+        })),
+        ...(fxDetail ? [fxDetail] : []),
+      ],
+    },
+  };
+}
+
+async function resolveEquityBasketComponentDetail(
+  component: EquityBasketComponentConfig,
+  fund: Fund,
+  context: FundValuationContext,
+  baseDate: string,
+): Promise<FundValuationDetailComponent> {
+  try {
+    return await fetchCurrentReturnDetailSinceBase(component, baseDate);
+  } catch (error) {
+    const currentDetail = await resolveCurrentReturnDetail(component, error);
+    if (currentDetail) return currentDetail;
+
+    const quoteDetail = resolveEquityBasketQuoteDetail(component, context, baseDate);
+    if (quoteDetail) return quoteDetail;
+
+    const fallbackChangePercent = component.fallbackChangePercent?.(fund, context);
+    if (fallbackChangePercent !== undefined && Number.isFinite(fallbackChangePercent)) {
+      return {
+        symbol: component.symbol,
+        name: component.name,
+        weight: component.weight,
+        source: "fallback",
+        totalChangePercent: roundPercent(fallbackChangePercent),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    return {
+      symbol: component.symbol,
+      name: component.name,
+      weight: component.weight,
+      source: "missing",
+      totalChangePercent: 0,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function resolveEquityBasketQuoteDetail(
+  component: EquityBasketComponentConfig,
+  context: FundValuationContext,
+  baseDate: string,
+) {
+  const symbols = [component.symbol, ...(component.quoteCodes ?? [])];
+  if (baseDate < getLatestCompletedEtfCloseDate(context.now)) return undefined;
+
+  for (const symbol of symbols) {
+    const quote = context.marketQuotes.get(symbol);
+    if (!quote) continue;
+
+    const quoteReturn = resolveQuoteReturnBySymbols([symbol], context);
+    if (quoteReturn === undefined) continue;
+
+    return {
+      symbol: component.symbol,
+      name: component.name,
+      weight: component.weight,
+      source: `quote:${symbol}`,
+      previousClose: quote.previousClose,
+      lastPrice: quote.currentPrice,
+      totalChangePercent: roundPercent(quoteReturn * 100),
+    };
+  }
+
+  return undefined;
+}
+
+async function resolveCurrentReturnDetail(component: EquityBasketComponentConfig, error: unknown) {
+  try {
+    const current = await fetchCurrentReturnForComponent(component);
+    const regularReturn = current.regularMarketPrice && current.regularMarketPrice > 0
+      ? current.regularMarketPrice / current.previousClose - 1
+      : undefined;
+    const extendedHoursReturn = current.regularMarketPrice && current.regularMarketPrice > 0
+      ? current.lastPrice / current.regularMarketPrice - 1
+      : undefined;
+
+    return {
+      symbol: component.symbol,
+      name: component.name,
+      weight: component.weight,
+      source: "yahoo-daily-fallback",
+      previousClose: roundNav(current.previousClose),
+      regularMarketPrice: current.regularMarketPrice === undefined ? undefined : roundNav(current.regularMarketPrice),
+      lastPrice: roundNav(current.lastPrice),
+      lastTime: current.lastTime,
+      totalChangePercent: roundPercent(current.return * 100),
+      regularChangePercent: regularReturn === undefined ? undefined : roundPercent(regularReturn * 100),
+      extendedHoursChangePercent: extendedHoursReturn === undefined ? undefined : roundPercent(extendedHoursReturn * 100),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchCurrentReturnDetailSinceBase(component: EquityBasketComponentConfig, baseDate: string) {
+  const [base, current] = await Promise.all([
+    fetchDailyCloseOnOrBefore(component.symbol, baseDate),
+    fetchCurrentReturnForComponent(component),
+  ]);
+
+  if (base.close <= 0) throw new Error(`Cannot calculate current return for ${component.symbol}`);
+  const totalReturn = current.lastPrice / base.close - 1;
+  const regularReturn = current.regularMarketPrice && current.regularMarketPrice > 0
+    ? current.regularMarketPrice / current.previousClose - 1
+    : undefined;
+  const extendedHoursReturn = current.regularMarketPrice && current.regularMarketPrice > 0
+    ? current.lastPrice / current.regularMarketPrice - 1
+    : undefined;
+
+  return {
+    symbol: component.symbol,
+    name: component.name,
+    weight: component.weight,
+    source: current.source,
+    baseDate: base.date,
+    baseClose: roundNav(base.close),
+    previousClose: roundNav(current.previousClose),
+    regularMarketPrice: current.regularMarketPrice === undefined ? undefined : roundNav(current.regularMarketPrice),
+    lastPrice: roundNav(current.lastPrice),
+    lastTime: current.lastTime,
+    totalChangePercent: roundPercent(totalReturn * 100),
+    regularChangePercent: regularReturn === undefined ? undefined : roundPercent(regularReturn * 100),
+    extendedHoursChangePercent: extendedHoursReturn === undefined ? undefined : roundPercent(extendedHoursReturn * 100),
+  };
+}
+
+async function fetchCurrentReturnForComponent(component: EquityBasketComponentConfig) {
+  const tencentSymbols = getTencentHongKongSymbols(component);
+
+  if (tencentSymbols.length) {
+    try {
+      return await fetchTencentCurrentReturn(tencentSymbols, component.symbol);
+    } catch {
+      // Fall through to Yahoo below.
+    }
+  }
+
+  return fetchCurrentFutureReturn(component.symbol);
+}
+
+function getTencentHongKongSymbols(component: EquityBasketComponentConfig) {
+  return [component.symbol, ...(component.quoteCodes ?? [])].flatMap((symbol) => {
+    const normalized = normalizeHongKongStockCode(symbol);
+    return normalized ? [`hk${normalized}`] : [];
+  }).filter((symbol, index, list) => list.indexOf(symbol) === index);
+}
+
+function normalizeHongKongStockCode(symbol: string) {
+  const directCode = /^0?\d{4,5}$/.exec(symbol);
+  if (directCode) return directCode[0].padStart(5, "0");
+
+  const hkCode = /^0?(\d{4,5})\.HK$/i.exec(symbol);
+  if (hkCode) return hkCode[1].padStart(5, "0");
+
+  return undefined;
+}
+
+async function fetchTencentCurrentReturn(symbols: string[], originalSymbol: string): Promise<YahooFutureReturn> {
+  const url = `https://qt.gtimg.cn/q=${symbols.join(",")}`;
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 fund-web valuation",
+      Referer: "https://gu.qq.com/",
+    },
+  });
+
+  if (!res.ok) throw new Error(`Tencent quote HTTP ${res.status}: ${originalSymbol}`);
+
+  const text = new TextDecoder("gbk").decode(await res.arrayBuffer());
+
+  for (const row of text.split(";\n")) {
+    const match = /v_([a-z0-9]+)="(.*)"/i.exec(row);
+    if (!match) continue;
+
+    const values = match[2].split("~");
+    const lastPrice = parseTencentQuoteNumber(values[3]);
+    const previousClose = parseTencentQuoteNumber(values[4]);
+    const changePercent = parseTencentQuoteNumber(values[32]);
+
+    if (lastPrice === undefined || previousClose === undefined || previousClose <= 0) continue;
+
+    return {
+      symbol: originalSymbol,
+      previousClose,
+      regularMarketPrice: lastPrice,
+      lastPrice,
+      return: changePercent === undefined ? lastPrice / previousClose - 1 : changePercent / 100,
+      lastTime: parseTencentQuoteTime(values[30]),
+      source: "tencent",
+    };
+  }
+
+  throw new Error(`Tencent quote empty: ${originalSymbol}`);
+}
+
+function parseTencentQuoteNumber(value: unknown) {
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const numeric = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(numeric) ? numeric : undefined;
+}
+
+function parseTencentQuoteTime(value: string | undefined) {
+  if (!value) return null;
+  const match = /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return value;
+
+  return new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}+08:00`).toISOString();
+}
+
+async function estimate162411OilGasQdii(fund: Fund, context: FundValuationContext): Promise<FundValuationResult> {
+  const base = resolveFundNavBase(fund);
+  if (!base) return { modelName: "162411-sp-oil-gas-qdii" };
+
+  const latestCompletedCloseDate = getLatestCompletedUsEquityCloseDate(context.now);
+  const stage1Return = base.baseDate < latestCompletedCloseDate
+    ? await fetchFirstCloseReturn(oilGas162411IndexSymbols, base.baseDate, latestCompletedCloseDate)
+    : 0;
+  const realtimeReturn = await resolve162411RealtimeReturn(context);
+  const navNow = base.baseNav * (1 + stage1Return) * (1 + realtimeReturn);
+
+  return {
+    estimatedNav: roundNav(navNow),
+    estimatedChangePercent: roundPercent((navNow / base.baseNav - 1) * 100),
+    modelName: "162411-sp-oil-gas-qdii",
+  };
+}
+
+async function fetchFirstCloseReturn(symbols: string[], baseDate: string, targetDate: string) {
+  for (const symbol of symbols) {
+    try {
+      const item = await fetchCloseReturn(symbol, baseDate, targetDate);
+      return item.return;
+    } catch {
+      // Try the next vendor symbol for the same benchmark.
+    }
+  }
+
+  return 0;
+}
+
+async function resolve162411RealtimeReturn(context: FundValuationContext) {
+  const futureReturn = await fetchFirstCurrentReturn(oilGas162411FutureSymbols, context);
+  if (futureReturn !== undefined) return futureReturn;
+
+  if (isUsEquityRegularTradingTime(context.now)) {
+    const indexReturn = await fetchFirstCurrentReturn(oilGas162411IndexSymbols, context);
+    if (indexReturn !== undefined) return indexReturn;
+  }
+
+  return await fetchFirstCurrentReturn(oilGas162411EtfProxySymbols, context) ?? 0;
+}
+
+async function fetchFirstCurrentReturn(symbols: string[], context: FundValuationContext) {
+  const quoteReturn = resolveQuoteReturnBySymbols(symbols, context);
+  if (quoteReturn !== undefined) return quoteReturn;
+
+  for (const symbol of symbols) {
+    try {
+      const item = await fetchCurrentFutureReturn(symbol);
+      return item.return;
+    } catch {
+      // Try the next vendor symbol for the same market.
+    }
+  }
+
+  return undefined;
+}
+
+function resolveQuoteReturnBySymbols(symbols: string[], context: FundValuationContext) {
+  for (const symbol of symbols) {
+    const quote = context.marketQuotes.get(symbol);
+    if (!quote) continue;
+
+    const changePercent = Number(quote.changePercent);
+    if (Number.isFinite(changePercent)) return changePercent / 100;
+
+    const currentPrice = Number(quote.currentPrice);
+    const previousClose = Number(quote.previousClose);
+    if (Number.isFinite(currentPrice) && Number.isFinite(previousClose) && previousClose > 0) {
+      return currentPrice / previousClose - 1;
+    }
+  }
+
+  return undefined;
+}
+
+function getLatestCompletedUsEquityCloseDate(now: Date) {
+  const parts = getZonedDateParts(now, "America/New_York");
+  const weekday = new Date(parts.date + "T00:00:00Z").getUTCDay();
+
+  if (weekday !== 0 && weekday !== 6 && parts.minutes >= 16 * 60 + 15) return parts.date;
+  return getPreviousWeekday(parts.date);
+}
+
+function isUsEquityRegularTradingTime(now: Date) {
+  const parts = getZonedDateParts(now, "America/New_York");
+  const weekday = new Date(parts.date + "T00:00:00Z").getUTCDay();
+  if (weekday === 0 || weekday === 6) return false;
+
+  return parts.minutes >= 9 * 60 + 30 && parts.minutes < 16 * 60;
+}
+
+function getZonedDateParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const partMap = new Map(parts.map((part) => [part.type, part.value]));
+
+  return {
+    date: partMap.get("year") + "-" + partMap.get("month") + "-" + partMap.get("day"),
+    minutes: Number(partMap.get("hour")) * 60 + Number(partMap.get("minute")),
+  };
+}
 
 async function estimate161815Adjusted(
   fund: Fund,
   context: FundValuationContext,
   config: Adjusted161815Config,
 ): Promise<FundValuationResult> {
-  const base = resolve161815Base(fund);
-  if (!base) return { modelName: "161815-adjusted-v10-full-lookthrough" };
+  const base = resolveFundNavBase(fund);
+  if (!base) return { modelName: config.modelName };
 
   const etfCloseDate = getLatestCompletedEtfCloseDate(context.now);
   const stage1Rows = await Promise.all(
@@ -337,7 +1126,7 @@ async function estimate161815Adjusted(
       if (base.baseDate >= etfCloseDate) return { contribution: 0 };
 
       try {
-        const item = await fetchCloseReturn(holding.symbol, base.baseDate, etfCloseDate);
+        const item = await fetchStage1CloseReturn(holding, base.baseDate, etfCloseDate);
         return { contribution: holding.weight * item.return };
       } catch {
         const fallback = getStage1FallbackReturn(holding, base.baseDate, etfCloseDate);
@@ -364,7 +1153,7 @@ async function estimate161815Adjusted(
   return {
     estimatedNav: roundNav(navNow),
     estimatedChangePercent: roundPercent((navNow / base.baseNav - 1) * 100),
-    modelName: "161815-adjusted-v10-full-lookthrough",
+    modelName: config.modelName,
   };
 }
 
@@ -400,7 +1189,7 @@ function resolveUsdCnyReturnFromMarketQuotes(context: FundValuationContext) {
   return undefined;
 }
 
-function resolve161815Base(fund: Fund): Dynamic161815Base | undefined {
+function resolveFundNavBase(fund: Fund): FundNavBase | undefined {
   if (fund.nav === undefined || fund.nav <= 0 || !fund.navDate) return undefined;
 
   const navDate = fund.navDate instanceof Date ? fund.navDate : new Date(fund.navDate);
@@ -469,19 +1258,63 @@ function yahooChartUrl(symbol: string, params: Record<string, string>) {
   return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?${query.toString()}`;
 }
 
-async function fetchJson(url: string) {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 fund-web 161815 valuation",
-      Accept: "application/json,text/plain,*/*",
-    },
+function nasdaqHistoricalUrl(symbol: string, startDate: string, endDate: string) {
+  const query = new URLSearchParams({
+    assetclass: "etf",
+    fromdate: startDate,
+    todate: endDate,
+    limit: "20",
   });
-
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
-  return res.json();
+  return `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/historical?${query.toString()}`;
 }
 
-async function fetchDailyCloseOnOrBefore(symbol: string, targetDate: string): Promise<YahooDailyClose> {
+function lseInstrumentDataUrl(symbol: string) {
+  return `https://api.londonstockexchange.com/api/gw/lse/instruments/alldata/${encodeURIComponent(symbol)}`;
+}
+
+async function fetchJson(url: string) {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 fund-web 161815 valuation",
+          Accept: "application/json,text/plain,*/*",
+        },
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${url}`);
+      return res.json();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
+}
+
+function parseNasdaqNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return undefined;
+
+  const parsed = Number(value.replace(/[$,]/g, ""));
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseNasdaqDate(value: unknown) {
+  if (typeof value !== "string") return undefined;
+
+  const parts = value.split("/");
+  if (parts.length !== 3) return undefined;
+
+  const [month, day, year] = parts;
+  if (!month || !day || !year) return undefined;
+
+  return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+}
+
+async function fetchYahooDailyCloseOnOrBefore(symbol: string, targetDate: string): Promise<DailyClose> {
   const period1 = toUnix(addDays(targetDate, -14));
   const period2 = toUnix(addDays(targetDate, 3));
   const url = yahooChartUrl(symbol, {
@@ -502,20 +1335,99 @@ async function fetchDailyCloseOnOrBefore(symbol: string, targetDate: string): Pr
     .map((ts: number, index: number) => ({
       date: new Date(ts * 1000).toISOString().slice(0, 10),
       close: closes[index],
+      source: "yahoo" as const,
     }))
-    .filter((row: YahooDailyClose) => row.date <= targetDate && isNum(row.close))
-    .sort((a: YahooDailyClose, b: YahooDailyClose) => a.date.localeCompare(b.date));
+    .filter((row: DailyClose) => row.date <= targetDate && isNum(row.close))
+    .sort((a: DailyClose, b: DailyClose) => a.date.localeCompare(b.date));
   const picked = rows.at(-1);
 
   if (!picked) throw new Error(`No daily close found for ${symbol} on/before ${targetDate}`);
   return picked;
 }
 
+async function fetchNasdaqDailyCloseOnOrBefore(symbol: string, targetDate: string): Promise<DailyClose> {
+  if (symbol.includes(".")) throw new Error(`Nasdaq daily fallback does not support ${symbol}`);
+
+  const url = nasdaqHistoricalUrl(symbol, addDays(targetDate, -14), targetDate);
+  const json = await fetchJson(url);
+  const rows = json?.data?.tradesTable?.rows;
+
+  if (!Array.isArray(rows)) throw new Error(`Nasdaq daily result empty for ${symbol}`);
+
+  const dailyRows: DailyClose[] = rows.flatMap((row: Record<string, unknown>) => {
+    const date = parseNasdaqDate(row.date);
+    const close = parseNasdaqNumber(row.close);
+
+    if (date === undefined || date > targetDate || !isNum(close)) return [];
+    return [{ date, close, source: "nasdaq" as const }];
+  });
+
+  const picked = dailyRows
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .at(-1);
+
+  if (!picked) throw new Error(`No Nasdaq daily close found for ${symbol} on/before ${targetDate}`);
+  return picked;
+}
+
+async function fetchLseDailyCloseOnOrBefore(symbol: string, targetDate: string): Promise<DailyClose> {
+  if (!symbol.endsWith(".L")) throw new Error(`LSE daily fallback does not support ${symbol}`);
+
+  const lseSymbol = symbol.slice(0, -2);
+  const json = await fetchJson(lseInstrumentDataUrl(lseSymbol));
+  const close = Number(json?.lastclose ?? json?.previousreferenceprice);
+  const dateValue = json?.lastclosedate;
+  const date = typeof dateValue === "string" ? dateValue.slice(0, 10) : undefined;
+
+  if (!date || date > targetDate || !isNum(close)) {
+    throw new Error(`No LSE daily close found for ${symbol} on/before ${targetDate}`);
+  }
+
+  return { date, close, source: "lse" };
+}
+
+async function fetchDailyCloseOnOrBefore(symbol: string, targetDate: string): Promise<DailyClose> {
+  if (symbol.endsWith(".L")) {
+    try {
+      return await fetchLseDailyCloseOnOrBefore(symbol, targetDate);
+    } catch {
+      // Fall back to Yahoo for historical LSE dates that the LSE snapshot API no longer exposes.
+    }
+  }
+
+  let yahooClose: DailyClose | undefined;
+  let yahooError: unknown;
+
+  try {
+    yahooClose = await fetchYahooDailyCloseOnOrBefore(symbol, targetDate);
+    if (yahooClose.date === targetDate) return yahooClose;
+  } catch (error) {
+    yahooError = error;
+  }
+
+  try {
+    const lseClose = await fetchLseDailyCloseOnOrBefore(symbol, targetDate);
+    if (!yahooClose || lseClose.date > yahooClose.date) return lseClose;
+  } catch {
+    // Keep trying other fallbacks.
+  }
+
+  try {
+    const nasdaqClose = await fetchNasdaqDailyCloseOnOrBefore(symbol, targetDate);
+    if (!yahooClose || nasdaqClose.date > yahooClose.date) return nasdaqClose;
+  } catch {
+    if (!yahooClose) throw yahooError ?? new Error(`No daily close found for ${symbol}`);
+  }
+
+  if (yahooClose) return yahooClose;
+  throw yahooError ?? new Error(`No daily close found for ${symbol}`);
+}
+
 async function fetchCloseReturn(
   symbol: string,
   baseDate: string,
   targetDate: string,
-): Promise<YahooCloseReturn> {
+): Promise<CloseReturn> {
   const base = await fetchDailyCloseOnOrBefore(symbol, baseDate);
   const target = await fetchDailyCloseOnOrBefore(symbol, targetDate);
 
@@ -526,8 +1438,29 @@ async function fetchCloseReturn(
     targetDate: target.date,
     targetClose: target.close,
     return: target.close / base.close - 1,
-    source: "yahoo",
+    source: target.source,
+    baseSource: base.source,
+    targetSource: target.source,
   };
+}
+
+async function fetchStage1CloseReturn(
+  holding: Adjusted161815Holding,
+  baseDate: string,
+  targetDate: string,
+): Promise<CloseReturn> {
+  const stage1Symbol = holding.stage1ReturnSymbol ?? holding.symbol;
+  const item = await fetchCloseReturn(stage1Symbol, baseDate, targetDate);
+
+  if (
+    holding.stage1ReturnSymbol
+    && holding.stage1ReturnSymbol !== holding.symbol
+    && item.targetDate <= item.baseDate
+  ) {
+    return fetchCloseReturn(holding.symbol, baseDate, targetDate);
+  }
+
+  return item;
 }
 
 async function fetchCurrentFutureReturn(symbol: string): Promise<YahooFutureReturn> {
@@ -559,9 +1492,14 @@ async function fetchCurrentFutureReturn(symbol: string): Promise<YahooFutureRetu
     throw new Error(`Cannot calculate intraday return for ${symbol}`);
   }
 
+  if (!timestamps.length && last === previousClose) {
+    throw new Error(`No intraday ticks found for ${symbol}`);
+  }
+
   return {
     symbol,
     previousClose,
+    regularMarketPrice: isNum(meta.regularMarketPrice) ? meta.regularMarketPrice : undefined,
     lastPrice: last,
     return: last / previousClose - 1,
     lastTime: timestamps.length ? new Date(timestamps.at(-1) * 1000).toISOString() : null,
@@ -583,15 +1521,14 @@ function buildOverlayWeights(config: Adjusted161815Config) {
     map.set(symbol, (map.get(symbol) || 0) + weight);
   };
 
-  const weights = config.inferredWeights;
-  add("GC=F", weights.goldEtfs);
-  add("BZ=F", weights.oilEtcs * oilEtcSplit161815.brent);
-  add("CL=F", weights.oilEtcs * oilEtcSplit161815.wti);
-  add("SI=F", weights.SLV);
+  config.holdings.forEach((holding) => {
+    add(holding.overlayFuture, holding.weight * (holding.overlayMultiplier ?? 1));
+  });
 
   if (config.includeComtBcdLookthrough) {
-    addLookthroughOverlay(map, config.lookthrough.COMT, weights.COMT);
-    addLookthroughOverlay(map, config.lookthrough.BCD, weights.BCD);
+    config.holdings.forEach((holding) => {
+      addLookthroughOverlay(map, config.lookthrough[holding.symbol], holding.weight);
+    });
   }
 
   return [...map.entries()].map(([symbol, weight]) => ({ symbol, weight }));
@@ -667,7 +1604,7 @@ function assert161815Config(config: Adjusted161815Config) {
   const expectedHoldingsWeight = 1 - config.inferredWeights.cashOther;
 
   if (Math.abs(holdingsWeight - expectedHoldingsWeight) > 0.002) {
-    console.warn("[161815] holdings weight mismatch", {
+    console.warn(`[${config.fundCode}] holdings weight mismatch`, {
       holdingsWeight,
       expectedHoldingsWeight,
       cashOther: config.inferredWeights.cashOther,
@@ -679,7 +1616,7 @@ function assert161815Config(config: Adjusted161815Config) {
     const expectedOverlayWeight = 1 - config.inferredWeights.cashOther;
 
     if (Math.abs(overlayWeight - expectedOverlayWeight) > 0.01) {
-      console.warn("[161815] effective futures overlay mismatch", {
+      console.warn(`[${config.fundCode}] effective futures overlay mismatch`, {
         overlayWeight,
         expectedOverlayWeight,
         cashOther: config.inferredWeights.cashOther,
@@ -727,8 +1664,9 @@ export function parseFundHoldings(fund: Fund) {
 }
 
 function getDefaultValuationModel(fund: Fund): FundValuationModel {
-  if (fund.fundType === "A股股票基金") return stockHoldingWeightedModel;
-  if (fund.fundType === "QDII" || fund.fundType === "港股股票基金") return qdiiHoldingWeightedModel;
+  if (fund.code === "501095") return stockHoldingWeightedOnlyModel;
+  if (fund.fundType === "A股股票基金" || fund.fundType === "股票型基金") return stockHoldingWeightedModel;
+  if (fund.fundType === "QDII" || Boolean(fund.fundType?.includes("QDII")) || fund.fundType === "港股股票基金") return qdiiHoldingWeightedModel;
   if (fund.fundType === "A股指数基金" || fund.fundType === "港股指数基金") return indexTrackingModel;
   return hybridFallbackModel;
 }
@@ -749,7 +1687,15 @@ function indexTrackingModel(fund: Fund, context: FundValuationContext): FundValu
 function stockHoldingWeightedModel(fund: Fund, context: FundValuationContext): FundValuationResult {
   return estimateByChange(
     fund,
-    calculateHoldingChange(context.holdings) ?? fund.indexChangePercent,
+    calculateHoldingChangeWithIndexRemainder(context.holdings, fund.indexChangePercent) ?? fund.indexChangePercent,
+    "stock-holding-weighted-index-remainder",
+  );
+}
+
+function stockHoldingWeightedOnlyModel(fund: Fund, context: FundValuationContext): FundValuationResult {
+  return estimateByChange(
+    fund,
+    calculateHoldingChange(context.holdings),
     "stock-holding-weighted",
   );
 }
@@ -757,14 +1703,14 @@ function stockHoldingWeightedModel(fund: Fund, context: FundValuationContext): F
 function qdiiHoldingWeightedModel(fund: Fund, context: FundValuationContext): FundValuationResult {
   return estimateByChange(
     fund,
-    calculateHoldingChange(context.holdings) ?? fund.indexChangePercent,
-    "qdii-holding-weighted",
+    calculateHoldingChangeWithIndexRemainder(context.holdings, fund.indexChangePercent) ?? fund.indexChangePercent,
+    "qdii-holding-weighted-index-remainder",
   );
 }
 
 function hybridFallbackModel(fund: Fund, context: FundValuationContext): FundValuationResult {
-  const holdingChange = calculateHoldingChange(context.holdings);
-  return estimateByChange(fund, holdingChange ?? fund.indexChangePercent, "hybrid-fallback");
+  const holdingChange = calculateHoldingChangeWithIndexRemainder(context.holdings, fund.indexChangePercent);
+  return estimateByChange(fund, holdingChange ?? fund.indexChangePercent, "hybrid-fallback-index-remainder");
 }
 
 function estimateByChange(
@@ -794,6 +1740,30 @@ function calculateHoldingChange(holdings: HoldingItem[]) {
   });
 
   return totalWeight > 0 ? weightedChange / totalWeight : undefined;
+}
+
+function calculateHoldingChangeWithIndexRemainder(
+  holdings: HoldingItem[],
+  indexChangePercent: number | undefined,
+) {
+  let weightedChange = 0;
+  let totalWeight = 0;
+
+  holdings.forEach((holding) => {
+    if (holding.changePercent === undefined || !Number.isFinite(holding.changePercent)) return;
+    if (!Number.isFinite(holding.weight) || holding.weight <= 0) return;
+    weightedChange += holding.changePercent * holding.weight;
+    totalWeight += holding.weight;
+  });
+
+  if (totalWeight <= 0) return undefined;
+
+  const boundedTotalWeight = Math.min(totalWeight, 100);
+  if (boundedTotalWeight < 50 && indexChangePercent !== undefined && Number.isFinite(indexChangePercent)) {
+    return (weightedChange + (100 - boundedTotalWeight) * indexChangePercent) / 100;
+  }
+
+  return weightedChange / totalWeight;
 }
 
 

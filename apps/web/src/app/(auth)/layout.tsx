@@ -10,7 +10,7 @@ import styled from "styled-components";
 export default function Layout({ children }: PropsWithChildren) {
   const router = useRouter();
   const pathname = usePathname();
-  const isFundPage = pathname === "/fund";
+  const isFundPage = pathname === "/fund" || pathname === "/fund/pin";
 
   useEffect(() => {
     const token = parseCookies().token;

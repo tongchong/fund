@@ -1,17 +1,80 @@
 "use client";
 
-import { ReloadOutlined, SearchOutlined, StarFilled, StarOutlined } from "@ant-design/icons";
+import {
+  CalculatorOutlined,
+  CheckCircleFilled,
+  CheckCircleOutlined,
+  ExclamationCircleFilled,
+  ExclamationCircleOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+  StarFilled,
+  StarOutlined,
+} from "@ant-design/icons";
 import type { inferRouterOutputs } from "@trpc/server";
-import { Button, Checkbox, Input, message, Modal, Select, Space, Table, Tag } from "antd";
+import {
+  Button,
+  Checkbox,
+  DatePicker,
+  Form,
+  Input,
+  InputNumber,
+  message,
+  Modal,
+  Popconfirm,
+  Select,
+  Space,
+  Table,
+  Tag,
+} from "antd";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import type { SorterResult } from "antd/es/table/interface";
+import type { Dayjs } from "dayjs";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { trpc } from "src/server/trpc/api";
 import type { AppRouter } from "src/server/trpc/router";
+import { useUserStore } from "src/store/userStore";
 import styled from "styled-components";
 
 type FundItem = inferRouterOutputs<AppRouter>["fund"]["list"]["items"][number];
 type FundDailyItem = inferRouterOutputs<AppRouter>["fund"]["daily"]["items"][number];
+type FundArbitrageItem = inferRouterOutputs<AppRouter>["fund"]["listArbitrageRedemptions"]["items"][number];
+type ArbitrageBuyMethod = FundArbitrageItem["buyMethod"];
+
+interface ValuationDetailComponent {
+  symbol: string;
+  name: string;
+  weight: number;
+  source: string;
+  baseDate?: string;
+  baseClose?: number;
+  previousClose?: number;
+  regularMarketPrice?: number;
+  lastPrice?: number;
+  lastTime?: string | null;
+  totalChangePercent?: number;
+  regularChangePercent?: number;
+  extendedHoursChangePercent?: number;
+  contributionPercent?: number;
+  error?: string;
+}
+
+interface ValuationDetails {
+  modelName: string;
+  baseDate?: string;
+  totalWeight?: number;
+  cashWeight?: number;
+  estimatedChangePercent?: number;
+  components: ValuationDetailComponent[];
+}
+
+interface ArbitrageFormValues {
+  buyDate?: Dayjs;
+  buyMethod?: ArbitrageBuyMethod;
+  shares?: number;
+  remark?: string;
+}
 
 const PAGE_SIZE = 50;
 
@@ -25,7 +88,7 @@ const sortableFields = [
 
 type SortField = typeof sortableFields[number];
 type SortOrder = "asc" | "desc";
-type TypeFilter = "index" | "qdii" | "stockWithoutIndex";
+type TypeFilter = "index" | "qdii" | "stockWithoutIndex" | "stock" | "europeAmericaQdii" | "asiaQdii" | "commodityQdii";
 
 function formatNumber(value: number | null | undefined, digits = 3) {
   if (value === null || value === undefined) return "--";
@@ -34,7 +97,7 @@ function formatNumber(value: number | null | undefined, digits = 3) {
 
 function formatWanAmount(value: number | null | undefined) {
   if (value === null || value === undefined) return "--";
-  return (value / 10000).toFixed(2);
+  return (value).toFixed(2);
 }
 
 function formatWanShares(value: number | null | undefined) {
@@ -55,6 +118,17 @@ function formatDateTime(value: string | null | undefined) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+function parseValuationDetails(value: string | null | undefined): ValuationDetails | null {
+  if (!value) return null;
+
+  try {
+    const parsed = JSON.parse(value) as ValuationDetails;
+    return Array.isArray(parsed.components) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function formatPercent(value: number | null | undefined, options?: { signed?: boolean }) {
   if (value === null || value === undefined) return "--";
   const sign = options?.signed && value > 0 ? "+" : "";
@@ -64,6 +138,137 @@ function formatPercent(value: number | null | undefined, options?: { signed?: bo
 function toneClass(value: number | null | undefined) {
   if (value === null || value === undefined || value === 0) return "flat";
   return value > 0 ? "up" : "down";
+}
+
+function buyMethodLabel(value: ArbitrageBuyMethod) {
+  return value === "EXCHANGE_SUBSCRIBE" ? "场内申购" : "场内买入";
+}
+
+function tradeStatusClass(value: string | null | undefined) {
+  if (!value) return "status";
+  if (value.includes("暂停")) return "status muted";
+  if (/限|暂停大额|单日|日累计/.test(value)) return "status limited";
+  return "status";
+}
+
+function formatTradeStatus(value: string | null | undefined) {
+  if (!value) return "--";
+  const limitMatch = /限\s*([0-9.]+\s*[万亿千百]?元?|[0-9.]+\s*[万亿千百]?)/.exec(value);
+  if (limitMatch) return "限 " + limitMatch[1].replace(/\s/g, "");
+  return value;
+}
+
+function ValuationDetailsView({ details }: { details: ValuationDetails | null }) {
+  if (!details) return <EmptyText>暂无估值明细</EmptyText>;
+
+  const columns: ColumnsType<ValuationDetailComponent> = [
+    {
+      title: "标的",
+      dataIndex: "symbol",
+      width: 92,
+      fixed: "left",
+      render: (value: string, record) => (
+        <span title={record.name} className="strong">{value}</span>
+      ),
+    },
+    {
+      title: "权重",
+      dataIndex: "weight",
+      width: 72,
+      align: "right",
+      render: (value: number) => formatPercent(value),
+    },
+    {
+      title: "累计涨跌",
+      dataIndex: "totalChangePercent",
+      width: 92,
+      align: "right",
+      render: (value: number | undefined) => (
+        <span className={toneClass(value)}>{formatPercent(value, { signed: true })}</span>
+      ),
+    },
+    {
+      title: "常规涨跌",
+      dataIndex: "regularChangePercent",
+      width: 92,
+      align: "right",
+      render: (value: number | undefined) => (
+        <span className={toneClass(value)}>{formatPercent(value, { signed: true })}</span>
+      ),
+    },
+    {
+      title: "盘前/盘后",
+      dataIndex: "extendedHoursChangePercent",
+      width: 92,
+      align: "right",
+      render: (value: number | undefined) => (
+        <span className={toneClass(value)}>{formatPercent(value, { signed: true })}</span>
+      ),
+    },
+    {
+      title: "贡献",
+      dataIndex: "contributionPercent",
+      width: 82,
+      align: "right",
+      render: (value: number | undefined) => (
+        <span className={toneClass(value)}>{formatPercent(value, { signed: true })}</span>
+      ),
+    },
+    {
+      title: "基准收盘",
+      dataIndex: "baseClose",
+      width: 92,
+      align: "right",
+      render: (value: number | undefined) => formatNumber(value, 4),
+    },
+    {
+      title: "常规收盘",
+      dataIndex: "regularMarketPrice",
+      width: 92,
+      align: "right",
+      render: (value: number | undefined) => formatNumber(value, 4),
+    },
+    {
+      title: "最新价",
+      dataIndex: "lastPrice",
+      width: 92,
+      align: "right",
+      render: (value: number | undefined) => formatNumber(value, 4),
+    },
+    {
+      title: "来源",
+      dataIndex: "source",
+      width: 92,
+    },
+    {
+      title: "更新时间",
+      dataIndex: "lastTime",
+      width: 176,
+      render: (value: string | null | undefined) => formatDateTime(value),
+    },
+  ];
+
+  return (
+    <ValuationDetailsWrap>
+      <div className="summary">
+        <span>模型：{details.modelName}</span>
+        <span>基准日：{details.baseDate ?? "--"}</span>
+        <span>总权重：{formatPercent(details.totalWeight)}</span>
+        <span>现金：{formatPercent(details.cashWeight)}</span>
+        <span className={toneClass(details.estimatedChangePercent)}>
+          估算涨跌：{formatPercent(details.estimatedChangePercent, { signed: true })}
+        </span>
+      </div>
+      <Table
+        rowKey={(record) => record.symbol}
+        size="small"
+        dataSource={details.components}
+        columns={columns}
+        scroll={{ x: 1100, y: 420 }}
+        pagination={false}
+      />
+    </ValuationDetailsWrap>
+  );
 }
 
 function toApiSortOrder(order: SorterResult<FundItem>["order"]): SortOrder | undefined {
@@ -86,12 +291,16 @@ export default function FundPage() {
   const [searchKeyword, setSearchKeyword] = useState("");
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [reviewedOnly, setReviewedOnly] = useState(false);
+  const [includeLowValue, setIncludeLowValue] = useState(false);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>();
   const [page, setPage] = useState(1);
   const [currentTime, setCurrentTime] = useState("");
   const [sortField, setSortField] = useState<SortField>();
   const [sortOrder, setSortOrder] = useState<SortOrder>();
   const [selectedFund, setSelectedFund] = useState<FundItem>();
+  const [selectedArbitrageFund, setSelectedArbitrageFund] = useState<FundItem>();
+  const [selectedValuationFundCode, setSelectedValuationFundCode] = useState<string>();
+  const [arbitrageForm] = Form.useForm<ArbitrageFormValues>();
 
   useEffect(() => {
     const updateTime = () => {
@@ -104,6 +313,8 @@ export default function FundPage() {
 
   const trpcUtils = trpc.useUtils();
   const [messageApi, messageContextHolder] = message.useMessage();
+  const role = useUserStore((state) => state.role);
+  const isAdmin = role === "ADMIN";
 
   const query = trpc.fund.list.useQuery({
     page,
@@ -111,17 +322,28 @@ export default function FundPage() {
     keyword: searchKeyword || undefined,
     favoriteOnly,
     reviewedOnly,
+    includeLowValue,
     typeFilter,
     sortField,
     sortOrder,
   }, {
     refetchInterval: 10000,
   });
+  const selectedValuationFund = useMemo(
+    () => query.data?.items.find((item) => item.code === selectedValuationFundCode),
+    [query.data?.items, selectedValuationFundCode],
+  );
 
   const dailyQuery = trpc.fund.daily.useQuery({
     code: selectedFund?.code ?? "__none__",
   }, {
     enabled: Boolean(selectedFund),
+  });
+
+  const arbitrageQuery = trpc.fund.listArbitrageRedemptions.useQuery({
+    fundCode: selectedArbitrageFund?.code ?? "__none__",
+  }, {
+    enabled: Boolean(selectedArbitrageFund),
   });
 
   const favoriteMutation = trpc.fund.updateFavorite.useMutation({
@@ -146,12 +368,76 @@ export default function FundPage() {
     },
   });
 
+  const lowValueMutation = trpc.fund.updateLowValue.useMutation({
+    onSuccess: async (_data, variables) => {
+      messageApi.success(variables.lowValue ? "已标记低价值" : "已取消低价值");
+      await trpcUtils.fund.list.invalidate();
+      await query.refetch();
+    },
+    onError: () => {
+      messageApi.error("低价值状态更新失败，请确认管理员权限");
+    },
+  });
+
+  const createArbitrageMutation = trpc.fund.createArbitrageRedemption.useMutation({
+    onSuccess: async () => {
+      messageApi.success("折价套利记录已保存");
+      arbitrageForm.resetFields(["buyDate", "remark"]);
+      await trpcUtils.fund.list.invalidate();
+      await trpcUtils.fund.listArbitrageRedemptions.invalidate();
+      await query.refetch();
+      await arbitrageQuery.refetch();
+    },
+    onError: () => {
+      messageApi.error("折价套利记录保存失败，请稍后重试");
+    },
+  });
+
+  const deleteArbitrageMutation = trpc.fund.deleteArbitrageRedemption.useMutation({
+    onSuccess: async () => {
+      messageApi.success("折价套利记录已删除");
+      await trpcUtils.fund.list.invalidate();
+      await trpcUtils.fund.listArbitrageRedemptions.invalidate();
+      await query.refetch();
+      await arbitrageQuery.refetch();
+    },
+    onError: () => {
+      messageApi.error("折价套利记录删除失败，请稍后重试");
+    },
+  });
+
   const handleToggleFavorite = (record: FundItem) => {
     favoriteMutation.mutate({ code: record.code, favorite: !record.favorite });
   };
 
   const handleToggleReviewed = (record: FundItem) => {
     reviewedMutation.mutate({ code: record.code, reviewed: !record.reviewed });
+  };
+
+  const handleToggleLowValue = (record: FundItem) => {
+    if (!isAdmin) return;
+    lowValueMutation.mutate({ code: record.code, lowValue: !record.lowValue });
+  };
+
+  const handleOpenArbitrage = (record: FundItem) => {
+    setSelectedArbitrageFund(record);
+    arbitrageForm.setFieldsValue({
+      buyMethod: "EXCHANGE_BUY" as ArbitrageBuyMethod,
+      shares: undefined,
+      remark: undefined,
+    });
+  };
+
+  const handleCreateArbitrage = (values: ArbitrageFormValues) => {
+    if (!selectedArbitrageFund || !values.buyDate || !values.buyMethod || values.shares === undefined) return;
+
+    createArbitrageMutation.mutate({
+      fundCode: selectedArbitrageFund.code,
+      buyDate: values.buyDate.format("YYYY-MM-DD"),
+      buyMethod: values.buyMethod,
+      shares: values.shares,
+      remark: values.remark?.trim() || undefined,
+    });
   };
 
   const columns = useMemo<ColumnsType<FundItem>>(() => [
@@ -194,6 +480,29 @@ export default function FundPage() {
           }}
         >
           {reviewed ? <CheckCircleFilled className="reviewed active" /> : <CheckCircleOutlined className="reviewed" />}
+        </button>
+      ),
+    },
+    {
+      title: "低价值",
+      dataIndex: "lowValue",
+      width: 52,
+      fixed: "left",
+      align: "center",
+      render: (lowValue: boolean, record) => (
+        <button
+          type="button"
+          className="low-value-button"
+          aria-label={lowValue ? "取消低价值" : "标记低价值"}
+          disabled={!isAdmin || lowValueMutation.isLoading}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleToggleLowValue(record);
+          }}
+        >
+          {lowValue
+            ? <ExclamationCircleFilled className="low-value active" />
+            : <ExclamationCircleOutlined className="low-value" />}
         </button>
       ),
     },
@@ -249,7 +558,26 @@ export default function FundPage() {
       title: "实时估值",
       dataIndex: "estimatedNav",
       width: 60,
-      render: (value: number | null) => <span className="estimate">{formatNumber(value, 4)}</span>,
+      render: (value: number | null, record) => (
+        <Space size={4}>
+          <span className="estimate">{formatNumber(value, 4)}</span>
+          {parseValuationDetails(record.valuationDetailsJson)
+            ? (
+              <Button
+                type="text"
+                size="small"
+                className="icon-cell-button"
+                icon={<CalculatorOutlined />}
+                aria-label="查看估值明细"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setSelectedValuationFundCode(record.code);
+                }}
+              />
+            )
+            : null}
+        </Space>
+      ),
     },
     {
       title: "实时溢价率(%)",
@@ -288,6 +616,15 @@ export default function FundPage() {
       align: "right",
       render: (value: number | null) => <span className="strong">{formatNumber(value, 4)}</span>,
     },
+    {
+      title: "净值涨幅",
+      dataIndex: "navChangePercent",
+      width: 76,
+      align: "right",
+      render: (value: number | null) => (
+        <span className={toneClass(value)}>{formatPercent(value, { signed: true })}</span>
+      ),
+    },
 
     {
       title: "换手率(%)",
@@ -318,17 +655,45 @@ export default function FundPage() {
       render: (value: number | null) => formatPercent(value),
     },
     {
+      title: "托管费",
+      dataIndex: "custodianFee",
+      width: 60,
+      align: "right",
+      render: (value: number | null) => formatPercent(value),
+    },
+    {
       title: "持有时间",
       dataIndex: "holdingPeriod",
-      width: 92,
+      width: 132,
       align: "center",
-      render: (value: string | null) => value || "--",
+      render: (value: string | null, record) => (
+        <Space size={6} className="holding-cell">
+          <span>{value || "--"}</span>
+          <Button
+            size="small"
+            icon={<CalculatorOutlined />}
+            className={record.arbitrageRecordCount > 0 ? "arbitrage-button active" : "arbitrage-button"}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenArbitrage(record);
+            }}
+          >
+            {record.arbitrageRecordCount > 0 ? `查看(${record.arbitrageRecordCount})` : "录入"}
+          </Button>
+        </Space>
+      ),
     },
     {
       title: "申购状态",
-      dataIndex: "purchaseStatus",
-      width: 100,
-      render: (value: string | null) => <span className="status">{value || "--"}</span>,
+      dataIndex: "applyStatus",
+      width: 86,
+      render: (value: string | null) => <span className={tradeStatusClass(value)}>{formatTradeStatus(value)}</span>,
+    },
+    {
+      title: "赎回状态",
+      dataIndex: "redeemStatus",
+      width: 86,
+      render: (value: string | null) => <span className={tradeStatusClass(value)}>{formatTradeStatus(value)}</span>,
     },
     {
       title: "基金公司",
@@ -337,15 +702,84 @@ export default function FundPage() {
       render: (value: string | null) => value || "--",
     },
 
-  ], [favoriteMutation.isLoading, reviewedMutation.isLoading, sortField, sortOrder]);
+  ], [
+    favoriteMutation.isLoading,
+    isAdmin,
+    lowValueMutation.isLoading,
+    reviewedMutation.isLoading,
+    sortField,
+    sortOrder,
+  ]);
+
+  const arbitrageColumns = useMemo<ColumnsType<FundArbitrageItem>>(() => [
+    {
+      title: "买入日",
+      dataIndex: "buyDate",
+      width: 100,
+      render: (value: string | null) => value || "--",
+    },
+    {
+      title: "份额可套日",
+      dataIndex: "redeemableDate",
+      width: 110,
+      render: (value: string | null) => <span className="strong">{value || "--"}</span>,
+    },
+    {
+      title: "份额",
+      dataIndex: "shares",
+      width: 110,
+      align: "right",
+      render: (value: number | null) => (
+        value === null ? "--" : value.toLocaleString("zh-CN", { maximumFractionDigits: 4 })
+      ),
+    },
+    {
+      title: "买入方式",
+      dataIndex: "buyMethod",
+      width: 100,
+      render: (value: FundArbitrageItem["buyMethod"]) => buyMethodLabel(value),
+    },
+    {
+      title: "赎回费",
+      dataIndex: "redemptionFee",
+      width: 90,
+      align: "right",
+      render: (value: number | null) => formatPercent(value),
+    },
+    {
+      title: "备注",
+      dataIndex: "remark",
+      render: (value: string | null) => value || "--",
+    },
+    {
+      title: "创建时间",
+      dataIndex: "createTime",
+      width: 170,
+      render: (value: string | null) => formatDateTime(value),
+    },
+    {
+      title: "操作",
+      dataIndex: "id",
+      width: 80,
+      align: "center",
+      render: (id: number) => (
+        <Popconfirm
+          title="删除这条记录？"
+          description="删除后不可恢复。"
+          okText="删除"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+          onConfirm={() => deleteArbitrageMutation.mutate({ id })}
+        >
+          <Button size="small" danger loading={deleteArbitrageMutation.isLoading}>
+            删除
+          </Button>
+        </Popconfirm>
+      ),
+    },
+  ], [deleteArbitrageMutation]);
 
   const dailyColumns = useMemo<ColumnsType<FundDailyItem>>(() => [
-    {
-      title: "ID",
-      dataIndex: "id",
-      width: 72,
-      align: "right",
-    },
     {
       title: "日期",
       dataIndex: "date",
@@ -365,6 +799,15 @@ export default function FundPage() {
       width: 96,
       align: "right",
       render: (value: number | null) => formatNumber(value, 4),
+    },
+    {
+      title: "净值涨幅",
+      dataIndex: "navChangePercent",
+      width: 96,
+      align: "right",
+      render: (value: number | null) => (
+        <span className={toneClass(value)}>{formatPercent(value, { signed: true })}</span>
+      ),
     },
     {
       title: "系统估值",
@@ -484,6 +927,10 @@ export default function FundPage() {
             options={[
               { label: "跟踪指数", value: "index" },
               { label: "QDII", value: "qdii" },
+              { label: "股票型基金", value: "stock" },
+              { label: "欧美指数QDII", value: "europeAmericaQdii" },
+              { label: "亚洲指数QDII", value: "asiaQdii" },
+              { label: "商品QDII", value: "commodityQdii" },
               { label: "未跟踪指数股票", value: "stockWithoutIndex" },
             ]}
             onChange={(value) => {
@@ -509,9 +956,21 @@ export default function FundPage() {
           >
             只看审阅
           </Checkbox>
+          <Checkbox
+            checked={includeLowValue}
+            onChange={(event) => {
+              setPage(1);
+              setIncludeLowValue(event.target.checked);
+            }}
+          >
+            显示低价值
+          </Checkbox>
           <Button icon={<ReloadOutlined />} onClick={() => void query.refetch()}>
             手动刷新
           </Button>
+          <Link href="/fund/pin" passHref legacyBehavior>
+            <Button>插针基金</Button>
+          </Link>
         </Space>
       </TopBar>
 
@@ -523,7 +982,7 @@ export default function FundPage() {
           dataSource={query.data?.items ?? []}
           columns={columns}
           onChange={handleTableChange}
-          scroll={{ x: 1820, y: "calc(100vh - 176px)" }}
+          scroll={{ x: 2012, y: "calc(100vh - 176px)" }}
           pagination={{
             current: page,
             pageSize: PAGE_SIZE,
@@ -535,6 +994,75 @@ export default function FundPage() {
         />
       </TableWrap>
 
+      <DailyModal
+        open={Boolean(selectedArbitrageFund)}
+        title={selectedArbitrageFund ?
+          `${selectedArbitrageFund.code} ${selectedArbitrageFund.name} 折价套利赎回日期` : "折价套利赎回日期"}
+        footer={null}
+        width={980}
+        destroyOnClose
+        onCancel={() => setSelectedArbitrageFund(undefined)}
+      >
+        <Form
+          form={arbitrageForm}
+          layout="inline"
+          className="arbitrage-form"
+          initialValues={{ buyMethod: "EXCHANGE_BUY" as ArbitrageBuyMethod }}
+          onFinish={handleCreateArbitrage}
+        >
+          <Form.Item
+            name="buyDate"
+            label="买入日"
+            rules={[{ required: true, message: "请选择买入日" }]}
+          >
+            <DatePicker format="YYYY-MM-DD" allowClear={false} />
+          </Form.Item>
+          <Form.Item
+            name="buyMethod"
+            label="买入方式"
+            rules={[{ required: true, message: "请选择买入方式" }]}
+          >
+            <Select
+              style={{ width: 120 }}
+              options={[
+                { label: "场内买入", value: "EXCHANGE_BUY" as ArbitrageBuyMethod },
+                { label: "场内申购", value: "EXCHANGE_SUBSCRIBE" as ArbitrageBuyMethod },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            name="shares"
+            label="份额"
+            rules={[{ required: true, message: "请输入份额" }]}
+          >
+            <InputNumber min={0.0001} precision={4} placeholder="份额" style={{ width: 140 }} />
+          </Form.Item>
+          <Form.Item name="remark" label="备注" className="remark-item">
+            <Input placeholder="备注" maxLength={1000} />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={createArbitrageMutation.isLoading}>
+              保存
+            </Button>
+          </Form.Item>
+        </Form>
+        <Table
+          rowKey="id"
+          size="small"
+          loading={arbitrageQuery.isLoading || arbitrageQuery.isFetching}
+          dataSource={arbitrageQuery.data?.items ?? []}
+          columns={arbitrageColumns}
+          scroll={{ x: 1010, y: 320 }}
+          pagination={{
+            pageSize: 8,
+            showSizeChanger: false,
+            showTotal: (total) => `共 ${total} 条`,
+          }}
+        />
+        <ReferenceImageWrap>
+          <img src="/fund-redemption-date-reference.svg" alt="赎回日期满7天参照表" />
+        </ReferenceImageWrap>
+      </DailyModal>
       <DailyModal
         open={Boolean(selectedFund)}
         title={selectedFund ? `${selectedFund.code} ${selectedFund.name} 每日估值记录` : "每日估值记录"}
@@ -549,13 +1077,25 @@ export default function FundPage() {
           loading={dailyQuery.isLoading || dailyQuery.isFetching}
           dataSource={dailyQuery.data?.items ?? []}
           columns={dailyColumns}
-          scroll={{ x: 1428, y: 440 }}
+          scroll={{ x: 1460, y: 440 }}
           pagination={{
             pageSize: 12,
             showSizeChanger: false,
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
+      </DailyModal>
+      <DailyModal
+        open={Boolean(selectedValuationFundCode)}
+        title={selectedValuationFund
+          ? `${selectedValuationFund.code} ${selectedValuationFund.name} 估值明细`
+          : "估值明细"}
+        footer={null}
+        width={1120}
+        destroyOnClose
+        onCancel={() => setSelectedValuationFundCode(undefined)}
+      >
+        <ValuationDetailsView details={parseValuationDetails(selectedValuationFund?.valuationDetailsJson)} />
       </DailyModal>
     </PageShell>
   );
@@ -628,7 +1168,7 @@ const TypeSelect = styled(Select<TypeFilter>)`
 
 const TopBar = styled.div`
   display: grid;
-  grid-template-columns: auto auto 1fr minmax(240px, 320px) auto;
+  grid-template-columns: auto auto minmax(150px, 190px) auto;
   gap: 12px;
   align-items: center;
   height: 42px;
@@ -905,6 +1445,20 @@ const TableWrap = styled.section`
     font-weight: 700;
   }
 
+  .icon-cell-button.ant-btn {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    padding: 0;
+    color: #7ac8ff;
+    border-radius: 3px;
+  }
+
+  .icon-cell-button.ant-btn:hover {
+    color: #e9f8ff;
+    background: #12324a;
+  }
+
   .up {
     color: #ff4242;
     font-weight: 700;
@@ -919,8 +1473,29 @@ const TableWrap = styled.section`
     color: #8aa2b8;
   }
 
+  .holding-cell {
+    flex-wrap: nowrap;
+  }
+
+  .arbitrage-button.ant-btn {
+    height: 22px;
+    padding: 0 7px;
+    border-color: #31506a;
+    color: #9fc7e8;
+    background: #0d1a27;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+
+  .arbitrage-button.active.ant-btn {
+    border-color: #1f8f74;
+    color: #6ff0c8;
+    background: #08251f;
+  }
+
   .favorite-button,
-  .reviewed-button {
+  .reviewed-button,
+  .low-value-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -935,13 +1510,15 @@ const TableWrap = styled.section`
   }
 
   .favorite-button:disabled,
-  .reviewed-button:disabled {
+  .reviewed-button:disabled,
+  .low-value-button:disabled {
     cursor: not-allowed;
     opacity: 0.6;
   }
 
   .favorite,
-  .reviewed {
+  .reviewed,
+  .low-value {
     color: #33566f;
     font-size: 14px;
   }
@@ -956,9 +1533,60 @@ const TableWrap = styled.section`
     color: #42d392;
   }
 
+  .low-value-button:hover .low-value,
+  .low-value.active {
+    color: #ff7a45;
+  }
+
   .status {
     color: #d9f1ff;
     font-weight: 600;
+  }
+
+  .status.muted {
+    color: #6f8798;
+  }
+
+  .status.limited {
+    color: #ffb547;
+  }
+`;
+
+const ReferenceImageWrap = styled.div`
+  margin-top: 14px;
+  overflow: auto;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: #ffffff;
+
+  img {
+    display: block;
+    width: 100%;
+    min-width: 860px;
+    height: auto;
+  }
+`;
+
+const EmptyText = styled.div`
+  padding: 22px;
+  color: #8aa2b8;
+  text-align: center;
+`;
+
+const ValuationDetailsWrap = styled.div`
+  .summary {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    color: #d9f1ff;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .strong {
+    color: #f5fbff;
+    font-weight: 700;
   }
 `;
 
@@ -976,6 +1604,45 @@ const DailyModal = styled(Modal)`
 
   .ant-modal-body {
     padding-top: 12px;
+  }
+
+  .arbitrage-form {
+    gap: 10px 0;
+    margin-bottom: 14px;
+    padding: 12px;
+    background: #ffffff;
+    border: 1px solid #d9d9d9;
+    border-radius: 6px;
+  }
+
+  .arbitrage-form .ant-form-item-label > label,
+  .arbitrage-form .ant-input,
+  .arbitrage-form .ant-input-number,
+  .arbitrage-form .ant-input-number-input,
+  .arbitrage-form .ant-picker,
+  .arbitrage-form .ant-picker-input > input,
+  .arbitrage-form .ant-select-selection-item,
+  .arbitrage-form .ant-select-arrow {
+    color: #262626;
+  }
+
+  .arbitrage-form .ant-input,
+  .arbitrage-form .ant-input-number,
+  .arbitrage-form .ant-picker,
+  .arbitrage-form .ant-select-selector {
+    background: #ffffff !important;
+    border-color: #d9d9d9 !important;
+  }
+
+  .arbitrage-form .ant-input::placeholder,
+  .arbitrage-form .ant-picker-input > input::placeholder,
+  .arbitrage-form .ant-select-selection-placeholder {
+    color: #8c8c8c !important;
+  }
+
+
+  .arbitrage-form .remark-item {
+    flex: 1 1 220px;
   }
 
   .ant-table {

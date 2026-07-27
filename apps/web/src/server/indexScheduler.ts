@@ -4,14 +4,16 @@ import { TextDecoder } from "node:util";
 import cron from "node-cron";
 import { Fund } from "src/server/db/entities/fund";
 import { FundDaily } from "src/server/db/entities/fundDaily";
+import { FundPricePin, FundPricePinType } from "src/server/db/entities/fundPricePin";
 import { MarketIndex } from "src/server/db/entities/marketIndex";
-import { resolveFundIndexRelation } from "src/server/fundIndexRelation";
+import { FundIndexRelation, isHongKongMarketFund, resolveFundIndexRelation } from "src/server/fundIndexRelation";
 import {
   getFundValuationModel,
   HoldingItem,
   MarketQuoteItem,
   parseFundHoldings,
 } from "src/server/fundValuationModels";
+import { getHongKongDateKey, isHongKongMarketTradingDay } from "src/server/marketCalendar";
 import { forkEntityManager } from "src/utils/getOrm";
 
 const FETCH_HEADERS = {
@@ -28,12 +30,17 @@ const INDEX_SECIDS = [
   "0.399368", "0.399967", "0.399998", "0.399811", "2.931068", "0.399991",
   "0.399809", "1.000979", "1.000823", "1.000805", "0.399395", "1.000961",
   "0.399997", "0.399965", "2.930875", "2.930726", "0.399803", "0.399987",
-  "1.000922", "0.399990", "2.930713", "2.930720", "2.930719", "0.399804",
-  "0.399933", "0.399417", "2.930997", "0.399975", "1.000905", "0.399707",
+  "1.000922", "2.930620", "0.399990", "2.930713", "2.930720", "2.930719", "0.399804",
+  "0.399933", "0.399417", "0.399976", "2.930997", "0.399975", "1.000905", "0.399707",
   "0.399806", "0.399440", "0.399393", "2.930721", "0.399807", "2.950090",
   "1.000300", "1.000935", "1.000984", "1.000841", "2.930743", "0.399992", "0.399330", "0.399973", "2.H30094",
   "0.399006", "0.399001", "0.399971", "2.930917", "2.930914", "2.930792",
-  "2.930746", "2.930791",
+  "2.930746", "2.930791", "2.930641", "0.399396",
+  "0.399986", "0.399313", "2.931069", "1.000903", "0.399005", "0.399974",
+  "1.000974", "0.399966", "0.399989", "0.399993", "2.930790", "2.930820", "1.000016",
+  "1.000852", "1.000906", "1.000998", "1.000827", "0.399995", "1.000925",
+  "0.399441", "1.000971",
+  "2.930965", "2.930967", "2.930709", "0.987016", "2.931722", "2.931024",
 ];
 
 const LOF_LIST_URL = "https://push2delay.eastmoney.com/api/qt/clist/get";
@@ -49,8 +56,15 @@ const FUND_FEE_PAGE_BASE = "https://fundf10.eastmoney.com/jjfl";
 const SINA_QUOTE_URL = "https://hq.sinajs.cn/list=";
 const TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q=";
 const FUND_SYNC_CRON = process.env.FUND_SYNC_CRON || "*/10 * * * * *";
-const FUND_DAILY_SNAPSHOT_CRON = process.env.FUND_DAILY_SNAPSHOT_CRON || "0 0 * * * *";
+const HONG_KONG_INDEX_SYNC_CRON = process.env.HONG_KONG_INDEX_SYNC_CRON || "*/20 * * * * *";
+const FUND_DAILY_SNAPSHOT_CRON = process.env.FUND_DAILY_SNAPSHOT_CRON || "20 9 * * *";
+const FUND_DAILY_SNAPSHOT_TIMEZONE = process.env.FUND_DAILY_SNAPSHOT_TIMEZONE || "Asia/Shanghai";
 const FUND_FEE_SYNC_CRON = process.env.FUND_FEE_SYNC_CRON || "15 6 * * *";
+const FUND_PRICE_PIN_SCAN_CRON = process.env.FUND_PRICE_PIN_SCAN_CRON || "30 2 * * *";
+const FUND_PRICE_PIN_THRESHOLD_PERCENT = Number(process.env.FUND_PRICE_PIN_THRESHOLD_PERCENT ?? 5);
+const FUND_PRICE_PIN_NEEDLE_THRESHOLD_PERCENT = Number(process.env.FUND_PRICE_PIN_NEEDLE_THRESHOLD_PERCENT ?? 4);
+const FUND_PRICE_PIN_LOOKBACK_YEARS = Number(process.env.FUND_PRICE_PIN_LOOKBACK_YEARS ?? 2);
+const FUND_PRICE_PIN_FETCH_INTERVAL_MS = Number(process.env.FUND_PRICE_PIN_FETCH_INTERVAL_MS ?? 3000);
 const SUCCESS_LOG_INTERVAL_MS = 5 * 60 * 1000;
 const HOLDINGS_SYNC_INTERVAL_MS = Number(process.env.HOLDINGS_SYNC_INTERVAL_MS ?? 20 * 1000);
 const SCHEDULER_STATE_KEY = "__fundIndexSchedulerState__";
@@ -63,12 +77,13 @@ const COMMODITY_QUOTES = [
 ];
 
 const HONG_KONG_FUND_CODES = new Set([
-  "501307", "160125", "160322", "160644", "160925", "161124", "501021",
+  "159010", "501307", "160125", "160322", "160644", "160925", "161124", "501021",
   "501023", "501025", "501301", "501305", "501306", "501311",
 ]);
 
 const HANG_SENG_DAILY_BULLETIN_URL = "https://www.hsi.com.hk/data/eng/download/daily-bulletin.json";
 const HANG_SENG_REPORT_BASE_URL = "https://www.hsi.com.hk";
+const AASTOCKS_HK_INDEX_URL = "https://www.aastocks.com/sc/stocks/market/index/hk-index.aspx";
 const HANG_SENG_REPORT_INDEXES = [
   { code: "HSI", name: "恒生指数", seriesCode: "hsi", rowName: "Hang Seng Index" },
   { code: "HSTECH", name: "恒生科技指数", seriesCode: "hstech", rowName: "Hang Seng TECH Index" },
@@ -84,6 +99,18 @@ const HANG_SENG_REPORT_INDEXES = [
 const TENCENT_HK_INDEX_SYMBOLS = [
   { symbol: "hkHSI", code: "HSI", name: "恒生指数" },
   { symbol: "hkHSTECH", code: "HSTECH", name: "恒生科技指数" },
+];
+
+const AASTOCKS_HK_INDEX_ROWS = [
+  { code: "HSI", name: "恒生指数", rowLabel: "恒生指数" },
+  { code: "HSTECH", name: "恒生科技指数", rowLabel: "恒生科技指数" },
+  { code: "HSCEI", name: "恒生中国企业指数", rowLabel: "国企指数" },
+  { code: "HSCCI", name: "恒生中国内地企业指数", rowLabel: "港中企业" },
+  { code: "HSSI", name: "恒生综合小型股指数", rowLabel: "恒生综合小型股指数" },
+];
+
+const SINA_HK_INDEX_SYMBOLS = [
+  { symbol: "int_hangseng", code: "HSI", name: "恒生指数" },
 ];
 
 // ---------- types ----------
@@ -108,12 +135,14 @@ interface LofItem {
   f12: string; // 代码
   f14: string; // 名称
   f18: number | string; // 昨收
+  source?: string;
 }
 
 interface NavData {
   nav: number;
   estimatedNav: number;
   navDate: string;
+  navChangePercent?: number;
 }
 
 interface PublishedNavData {
@@ -145,10 +174,20 @@ interface CommodityQuoteItem {
   changePercent: number;
 }
 
+interface FundKlineItem {
+  date: Date;
+  openPrice: number;
+  closePrice: number;
+  highPrice: number;
+  lowPrice: number;
+}
+
 interface SchedulerState {
   consecutiveFailures: number;
   lastSuccessLogAt: number;
   isFetching: boolean;
+  isFetchingHongKongIndices?: boolean;
+  isScanningPricePins?: boolean;
   lastNavFetchHour: string;
   lastHoldingsFetchAt: number;
   started: boolean;
@@ -168,7 +207,7 @@ const FALLBACK_FUND_SECIDS = [
   "1.501090", "0.160638", "0.167301", "0.161715", "0.165520", "0.160620",
   "0.160221", "0.161217", "0.161725", "0.160628", "0.160643", "0.161726",
   "0.161031", "0.160632", "1.501227", "0.161724", "0.161631", "1.501007",
-  "1.501008", "1.501005", "0.161030", "0.160635", "0.161035", "0.160225",
+  "1.501008", "1.501005", "0.162412", "0.161030", "0.160635", "0.161035", "0.160225",
   "1.502010", "0.161720", "0.161027", "1.501036", "0.161017", "0.160119",
   "0.163113", "1.501030", "1.502023", "0.160218", "0.161033", "0.160639",
   "0.160135", "1.501050", "1.501057", "1.501058", "1.501029", "0.160706",
@@ -274,6 +313,107 @@ async function fetchLofList(): Promise<LofItem[]> {
   return allItems;
 }
 
+async function fetchFundQuoteBatch(codes: string[]): Promise<LofItem[]> {
+  const symbols = [...new Set(codes.filter(isValidFundCode).map(codeToTencentSymbol))];
+  if (!symbols.length) return [];
+
+  const text = await httpGet(`${TENCENT_QUOTE_URL}${symbols.join(",")}`, {
+    ...FETCH_HEADERS,
+    "Referer": "https://gu.qq.com/",
+  }, "gbk");
+
+  return text.split(";\n").flatMap((row) => {
+    const match = /v_([a-z0-9]+)="(.*)"/i.exec(row);
+    if (!match) return [];
+
+    const values = match[2].split("~");
+    const code = tencentSymbolToCode(match[1]);
+    const currentPrice = toFiniteNumber(values[3]);
+    const previousClose = toFiniteNumber(values[4]);
+    const changePercent = toFiniteNumber(values[32]);
+    if (!isValidFundCode(code) || currentPrice === undefined || changePercent === undefined) return [];
+
+    return [{
+      f2: currentPrice,
+      f3: changePercent,
+      f5: toFiniteNumber(values[6]) ?? 0,
+      f6: toFiniteNumber(values[37]) ?? 0,
+      f8: 0,
+      f12: code,
+      f14: values[1],
+      f18: previousClose ?? currentPrice,
+      source: "腾讯基金行情",
+    } satisfies LofItem];
+  });
+}
+
+async function fetchFundKlines(code: string, lookbackYears: number): Promise<FundKlineItem[]> {
+  const end = new Date();
+  const begin = new Date(end.getTime());
+  begin.setFullYear(begin.getFullYear() - lookbackYears);
+
+  const url = INDEX_KLINE_API_URL
+    + `?secid=${codeToEastmoneySecid(code)}`
+    + "&fields1=f1,f2,f3,f4,f5,f6"
+    + "&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+    + "&klt=101&fqt=0"
+    + `&beg=${formatEastmoneyDate(begin)}&end=${formatEastmoneyDate(end)}&lmt=1000`;
+  const text = await httpGet(url);
+  const json = JSON.parse(text);
+  const klines = (json?.data?.klines ?? []) as string[];
+
+  return klines.flatMap((row) => {
+    const cells = row.split(",");
+    const date = parseEastmoneyTradeDate(cells[0]);
+    const openPrice = toFiniteNumber(cells[1]);
+    const closePrice = toFiniteNumber(cells[2]);
+    const highPrice = toFiniteNumber(cells[3]);
+    const lowPrice = toFiniteNumber(cells[4]);
+
+    if (
+      !date
+      || openPrice === undefined
+      || closePrice === undefined
+      || highPrice === undefined
+      || lowPrice === undefined
+      || openPrice <= 0
+      || closePrice <= 0
+    ) {
+      return [];
+    }
+
+    return [{ date, openPrice, closePrice, highPrice, lowPrice }];
+  });
+}
+
+function codeToEastmoneySecid(code: string) {
+  const market = code.startsWith("6") || code.startsWith("5") || code.startsWith("9") ? 1 : 0;
+  return `${market}.${code}`;
+}
+
+function formatEastmoneyDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function parseEastmoneyTradeDate(value: string | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(value + "T00:00:00.000Z");
+  return Number.isFinite(date.getTime()) ? date : null;
+}
+
+function mergeFundQuoteItems(primary: LofItem[], realtime: LofItem[]) {
+  const byCode = new Map<string, LofItem>();
+  primary.forEach((item) => byCode.set(item.f12, item));
+  realtime.forEach((item) => byCode.set(item.f12, {
+    ...byCode.get(item.f12),
+    ...item,
+  }));
+  return [...byCode.values()];
+}
+
 function toFiniteNumber(value: unknown) {
   if (value === null || value === undefined || value === "" || value === "-") return undefined;
   const numberValue = Number(value);
@@ -335,6 +475,33 @@ async function fetchSinaIndexItems(): Promise<IndexItem[]> {
       f14: values[0],
       f18: currentPrice - (changeAmount ?? 0),
     }];
+  });
+}
+
+async function fetchSinaHongKongIndexItems(): Promise<IndexItem[]> {
+  const text = await httpGet(`${SINA_QUOTE_URL}${SINA_HK_INDEX_SYMBOLS.map((item) => item.symbol).join(",")}`, {
+    ...FETCH_HEADERS,
+    "Referer": "https://finance.sina.com.cn/",
+  }, "gbk");
+  const rowBySymbol = new Map(parseSinaRows(text).map((row) => [row.symbol, row.values]));
+
+  return SINA_HK_INDEX_SYMBOLS.flatMap((config) => {
+    const values = rowBySymbol.get(config.symbol);
+    const currentPrice = toFiniteNumber(values?.[1]);
+    const changeAmount = toFiniteNumber(values?.[2]);
+    const changePercent = toFiniteNumber(values?.[3]);
+    if (currentPrice === undefined || changePercent === undefined) return [];
+
+    return [{
+      f2: currentPrice,
+      f3: changePercent,
+      f4: changeAmount ?? 0,
+      f12: config.code,
+      f13: 100,
+      f14: config.name,
+      f18: currentPrice - (changeAmount ?? 0),
+      source: "新浪港股指数",
+    } satisfies IndexItem];
   });
 }
 
@@ -452,6 +619,56 @@ async function fetchHangSengOfficialIndexItems(): Promise<IndexItem[]> {
   return items;
 }
 
+function parseHtmlNumber(value: string | undefined) {
+  if (!value) return undefined;
+  const normalized = value
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, "")
+    .replace(/,/g, "")
+    .replace(/%/g, "")
+    .replace(/▲|▼/g, "")
+    .trim();
+  return toFiniteNumber(normalized);
+}
+
+function extractAastocksCells(rowHtml: string) {
+  return [...rowHtml.matchAll(/<td[^>]*>(.*?)<\/td>/gis)].map((cell) => cell[1]);
+}
+
+async function fetchAastocksHongKongIndexItems(): Promise<IndexItem[]> {
+  const html = await httpGet(AASTOCKS_HK_INDEX_URL, {
+    ...FETCH_HEADERS,
+    "Referer": "https://www.aastocks.com/",
+  });
+
+  return AASTOCKS_HK_INDEX_ROWS.flatMap((config) => {
+    const rowHtml = html
+      .split(/<tr class="tblM_row[^>]*">/i)
+      .find((row) => row.includes(`index=${config.code}`)
+        || stripHtml(row).includes(config.rowLabel)
+        || row.includes(`cusToolTip="${config.rowLabel}"`))
+      ?.split("</tr>")[0];
+    if (!rowHtml) return [];
+
+    const cells = extractAastocksCells(rowHtml);
+    const currentPrice = parseHtmlNumber(cells[1]);
+    const changeAmount = parseHtmlNumber(cells[2]);
+    const changePercent = parseHtmlNumber(cells[3]);
+    if (currentPrice === undefined || changePercent === undefined) return [];
+
+    return [{
+      f2: currentPrice,
+      f3: changePercent,
+      f4: changeAmount ?? 0,
+      f12: config.code,
+      f13: 100,
+      f14: config.name,
+      f18: changeAmount === undefined ? currentPrice : currentPrice - changeAmount,
+      source: "AASTOCKS港股指数",
+    } satisfies IndexItem];
+  });
+}
+
 function mergeIndexItems(primary: IndexItem[], fallback: IndexItem[]) {
   const byCode = new Map<string, IndexItem>();
   fallback.forEach((item) => byCode.set(item.f12, item));
@@ -460,21 +677,27 @@ function mergeIndexItems(primary: IndexItem[], fallback: IndexItem[]) {
 }
 
 async function fetchHongKongIndexItems(): Promise<IndexItem[]> {
-  const [tencentResult, hangSengResult] = await Promise.allSettled([
+  const [aastocksResult, sinaResult, tencentResult, hangSengResult] = await Promise.allSettled([
+    fetchAastocksHongKongIndexItems(),
+    fetchSinaHongKongIndexItems(),
     fetchTencentHongKongIndexItems(),
     fetchHangSengOfficialIndexItems(),
   ]);
+  const aastocksItems = aastocksResult.status === "fulfilled" ? aastocksResult.value : [];
+  const sinaItems = sinaResult.status === "fulfilled" ? sinaResult.value : [];
   const tencentItems = tencentResult.status === "fulfilled" ? tencentResult.value : [];
   const hangSengItems = hangSengResult.status === "fulfilled" ? hangSengResult.value : [];
 
-  if (!tencentItems.length && !hangSengItems.length) {
-    const errors = [tencentResult, hangSengResult]
+  if (!aastocksItems.length && !sinaItems.length && !tencentItems.length && !hangSengItems.length) {
+    const errors = [aastocksResult, sinaResult, tencentResult, hangSengResult]
       .filter((result): result is PromiseRejectedResult => result.status === "rejected")
       .map((result) => result.reason?.message || String(result.reason));
     throw new Error(errors.join("; ") || "empty response");
   }
 
-  return mergeIndexItems(tencentItems, hangSengItems);
+  const fallbackItems = mergeIndexItems(tencentItems, hangSengItems);
+  const realtimeItems = mergeIndexItems(aastocksItems, sinaItems);
+  return mergeIndexItems(realtimeItems, fallbackItems);
 }
 async function fetchSinaLofList(): Promise<LofItem[]> {
   const rows = await fetchSinaQuotes(FALLBACK_FUND_SECIDS);
@@ -855,6 +1078,66 @@ async function findOrCreateMarketIndexByCode(
   return index;
 }
 
+async function upsertMarketIndexItems(em: SchedulerEntityManager, items: IndexItem[], source: string) {
+  const codes = [...new Set(items.map((item) => item.f12).filter(Boolean))];
+  const existingIndices = await em.find(MarketIndex, { code: { $in: codes } });
+  const indexByCode = new Map(existingIndices.map((index) => [index.code, index]));
+
+  for (const item of items) {
+    const currentPrice = toFiniteNumber(item.f2);
+    const changePercent = toFiniteNumber(item.f3);
+    const changeAmount = toFiniteNumber(item.f4);
+    const previousClose = toFiniteNumber(item.f18);
+    const market = toFiniteNumber(item.f13);
+    let index = indexByCode.get(item.f12);
+    if (!index) {
+      index = await findOrCreateMarketIndexByCode(em, indexByCode, {
+        code: item.f12,
+        market: market ?? 0,
+        name: item.f14,
+        currentPrice,
+        changePercent,
+        changeAmount,
+        previousClose,
+        source: item.source ?? source,
+      });
+    }
+
+    index.name = item.f14;
+    index.market = market ?? index.market;
+    index.source = item.source ?? source;
+    index.instrumentType = undefined;
+    if (currentPrice !== undefined) index.currentPrice = currentPrice;
+    if (changePercent !== undefined) index.changePercent = changePercent;
+    if (changeAmount !== undefined) index.changeAmount = changeAmount;
+    if (previousClose !== undefined) index.previousClose = previousClose;
+  }
+}
+
+async function updateFundIndexRelations(em: SchedulerEntityManager) {
+  const [funds, marketIndices] = await Promise.all([
+    em.find(Fund, {}),
+    em.find(MarketIndex, {}),
+  ]);
+
+  for (const fund of funds) {
+    const indexRelation = resolveFundIndexRelation(fund, marketIndices);
+    applyFundIndexRelation(fund, indexRelation);
+    fund.fundType = resolveFundType(fund, indexRelation.code !== null);
+    markFixedOpenFundLowValue(fund);
+  }
+}
+
+function applyFundIndexRelation(fund: Fund, indexRelation: FundIndexRelation) {
+  if (!indexRelation.code || !indexRelation.name) {
+    fund.indexChangePercent = undefined;
+    return;
+  }
+
+  fund.category = indexRelation.name;
+  fund.indexChangePercent = indexRelation.changePercent ?? undefined;
+}
+
 async function fetchAndUpdateIndices() {
   try {
     const { source, items: domesticItems } = await fetchIndexItemsWithFallback();
@@ -867,50 +1150,29 @@ async function fetchAndUpdateIndices() {
     schedulerState.consecutiveFailures = 0;
 
     const em = await forkEntityManager();
-    const codes = [...new Set(items.map((item) => item.f12).filter(Boolean))];
-    const existingIndices = await em.find(MarketIndex, { code: { $in: codes } });
-    const indexByCode = new Map(existingIndices.map((index) => [index.code, index]));
-
-    for (const item of items) {
-      const currentPrice = toFiniteNumber(item.f2);
-      const changePercent = toFiniteNumber(item.f3);
-      const changeAmount = toFiniteNumber(item.f4);
-      const previousClose = toFiniteNumber(item.f18);
-      const market = toFiniteNumber(item.f13);
-      let index = indexByCode.get(item.f12);
-      if (index) {
-        index.name = item.f14;
-        index.market = market ?? index.market;
-        index.source = item.source ?? source;
-        index.instrumentType = undefined;
-        if (currentPrice !== undefined) index.currentPrice = currentPrice;
-        if (changePercent !== undefined) index.changePercent = changePercent;
-        if (changeAmount !== undefined) index.changeAmount = changeAmount;
-        if (previousClose !== undefined) index.previousClose = previousClose;
-      } else {
-        index = await findOrCreateMarketIndexByCode(em, indexByCode, {
-          code: item.f12,
-          market: market ?? 0,
-          name: item.f14,
-          currentPrice,
-          changePercent,
-          changeAmount,
-          previousClose,
-          source: item.source ?? source,
-        });
-        index.name = item.f14;
-        index.market = market ?? index.market;
-        index.source = item.source ?? source;
-        index.instrumentType = undefined;
-        if (currentPrice !== undefined) index.currentPrice = currentPrice;
-        if (changePercent !== undefined) index.changePercent = changePercent;
-        if (changeAmount !== undefined) index.changeAmount = changeAmount;
-        if (previousClose !== undefined) index.previousClose = previousClose;
-      }
-    }
+    await upsertMarketIndexItems(em, items, source);
     await em.flush();
   } catch (e) {
     logFetchError("index", e);
+  }
+}
+
+async function fetchAndUpdateHongKongIndices() {
+  if (schedulerState.isFetchingHongKongIndices) return;
+
+  schedulerState.isFetchingHongKongIndices = true;
+  try {
+    const items = await fetchHongKongIndexItems();
+    if (!items.length) return;
+
+    const em = await forkEntityManager();
+    await upsertMarketIndexItems(em, items, "港股指数");
+    await updateFundIndexRelations(em);
+    await em.flush();
+  } catch (e) {
+    logFetchError("hong-kong-index", e);
+  } finally {
+    schedulerState.isFetchingHongKongIndices = false;
   }
 }
 
@@ -957,14 +1219,24 @@ async function fetchAndUpdateCommodities() {
 async function fetchAndUpdateFunds() {
   try {
     const { source, items } = await fetchLofListWithFallback();
-    const lofItems = items.filter((item) => isValidFundCode(item.f12));
-    if (!lofItems.length) return;
+    const fetchedLofItems = items.filter((item) => isValidFundCode(item.f12));
+    if (!fetchedLofItems.length) return;
     schedulerState.consecutiveFailures = 0;
 
     const em = await forkEntityManager();
     const marketIndices = await em.find(MarketIndex, {});
-    const lofCodes = lofItems.map((item) => item.f12);
     const existingFunds = await em.find(Fund, {});
+    const existingFundCodes = existingFunds.map((fund) => fund.code);
+    const realtimeQuoteItems = await fetchFundQuoteBatch([
+      ...existingFundCodes,
+      ...fetchedLofItems.map((item) => item.f12),
+    ]).catch((error) => {
+      logFetchError("fund-realtime-quote", error);
+      return [] as LofItem[];
+    });
+    const lofItems = mergeFundQuoteItems(fetchedLofItems, realtimeQuoteItems)
+      .filter((item) => isValidFundCode(item.f12));
+    const lofCodes = lofItems.map((item) => item.f12);
     const fundByCode = new Map(existingFunds.map((fund) => [fund.code, fund]));
     const navCodes = [...new Set([...lofCodes, ...existingFunds.map((fund) => fund.code)])];
     const navMap = shouldFetchNavNow() ? await fetchNavBatch(navCodes) : new Map<string, NavData>();
@@ -972,9 +1244,9 @@ async function fetchAndUpdateFunds() {
 
     for (const fund of fundByCode.values()) {
       const indexRelation = resolveFundIndexRelation(fund, marketIndices);
-      fund.category = indexRelation.name ?? fund.category;
-      fund.indexChangePercent = indexRelation.changePercent ?? fund.indexChangePercent;
-      fund.fundType = indexRelation.code ? "A股指数基金" : classifyFund(fund);
+      applyFundIndexRelation(fund, indexRelation);
+      fund.fundType = resolveFundType(fund, indexRelation.code !== null);
+      markFixedOpenFundLowValue(fund);
     }
 
     for (const item of lofItems) {
@@ -987,7 +1259,7 @@ async function fetchAndUpdateFunds() {
       let fund = fundByCode.get(item.f12);
       if (fund) {
         fund.name = item.f14;
-        fund.source = source;
+        fund.source = item.source ?? source;
         if (currentPrice !== undefined) fund.currentPrice = currentPrice;
         if (dailyChangePercent !== undefined) fund.dailyChangePercent = dailyChangePercent;
         if (dailyVolume !== undefined) fund.dailyVolume = dailyVolume;
@@ -1000,10 +1272,10 @@ async function fetchAndUpdateFunds() {
           currentPrice,
           dailyChangePercent,
           exchangeShares,
-          source,
+          source: item.source ?? source,
         });
         fund.name = item.f14;
-        fund.source = source;
+        fund.source = item.source ?? source;
         if (currentPrice !== undefined) fund.currentPrice = currentPrice;
         if (dailyChangePercent !== undefined) fund.dailyChangePercent = dailyChangePercent;
         if (dailyVolume !== undefined) fund.dailyVolume = dailyVolume;
@@ -1015,6 +1287,7 @@ async function fetchAndUpdateFunds() {
       const navData = navMap.get(item.f12);
       if (navData) {
         applyNavData(fund, navData);
+        await recalculateFundNavChangePercent(em, fund);
         if (currentPrice !== undefined && Number.isFinite(navData.estimatedNav) && navData.estimatedNav > 0) {
           fund.estimatedPremiumRate = Math.round(
             ((currentPrice - navData.estimatedNav) / navData.estimatedNav) * 10000,
@@ -1023,9 +1296,9 @@ async function fetchAndUpdateFunds() {
       }
 
       const indexRelation = resolveFundIndexRelation(fund, marketIndices);
-      fund.category = indexRelation.name ?? fund.category;
-      fund.indexChangePercent = indexRelation.changePercent ?? fund.indexChangePercent;
-      fund.fundType = indexRelation.code ? "A股指数基金" : classifyFund(fund);
+      applyFundIndexRelation(fund, indexRelation);
+      fund.fundType = resolveFundType(fund, indexRelation.code !== null);
+      markFixedOpenFundLowValue(fund);
     }
 
     for (const fund of fundByCode.values()) {
@@ -1033,6 +1306,7 @@ async function fetchAndUpdateFunds() {
       const navData = navMap.get(fund.code);
       if (!navData) continue;
       applyNavData(fund, navData);
+      await recalculateFundNavChangePercent(em, fund);
 
       if (fund.currentPrice !== undefined && navData.estimatedNav > 0) {
         fund.estimatedPremiumRate = Math.round(
@@ -1040,9 +1314,9 @@ async function fetchAndUpdateFunds() {
         ) / 100;
       }
       const indexRelation = resolveFundIndexRelation(fund, marketIndices);
-      fund.category = indexRelation.name ?? fund.category;
-      fund.indexChangePercent = indexRelation.changePercent ?? fund.indexChangePercent;
-      fund.fundType = indexRelation.code ? "A股指数基金" : classifyFund(fund);
+      applyFundIndexRelation(fund, indexRelation);
+      fund.fundType = resolveFundType(fund, indexRelation.code !== null);
+      markFixedOpenFundLowValue(fund);
     }
 
     if (shouldFetchHoldingsNow()) {
@@ -1082,25 +1356,61 @@ function calculateExchangeShares(volumeHands: number | undefined, turnoverRate: 
   return Math.round((volumeShares / (turnoverRate / 100)) * 100) / 100;
 }
 
+const syncedFundTypes = new Set(["股票型基金", "欧美指数QDII", "亚洲指数QDII", "商品QDII"]);
+
+function isSyncedFundType(fundType: string | undefined) {
+  return fundType !== undefined && syncedFundTypes.has(fundType);
+}
+
+function isQdiiFundType(fundType: string | undefined) {
+  return fundType === "QDII" || Boolean(fundType?.includes("QDII"));
+}
+
+function isStockFundType(fundType: string | undefined) {
+  return fundType === "A股股票基金" || fundType === "股票型基金";
+}
+
+function resolveFundType(fund: Fund, hasIndexRelation: boolean) {
+  if (fund.code === "501095") return "股票型基金";
+  if (fund.code === "501227") return "混合型基金";
+  if (fund.code === "162411") return "商品QDII";
+  if (isSyncedFundType(fund.fundType)) return fund.fundType;
+
+  const classifiedFundType = classifyFund(fund);
+  if (isSyncedFundType(classifiedFundType) || isQdiiFundType(classifiedFundType)) return classifiedFundType;
+
+  return hasIndexRelation ? "A股指数基金" : classifiedFundType;
+}
+
 function classifyFund(fund: Fund) {
   if (fund.code === "161715") return "A股指数基金";
-  if (HONG_KONG_FUND_CODES.has(String(fund.code).trim())) return "港股指数基金";
+  if (HONG_KONG_FUND_CODES.has(String(fund.code).trim())) return "亚洲指数QDII";
 
   const text = `${fund.name}${fund.category ?? ""}`.toLowerCase();
-  if (/qdii|纳斯达克|标普|海外|德国|印度|日本|越南|全球|油气|美元|抗通胀|原油/i.test(text)) return "QDII";
-  if (/恒生|港股|香港|中概|h股|h股|红利低波港股/i.test(text)) return "港股指数基金";
-  if (/指数|300|500|1000|创业板|科创|中证|国证|深证|上证|沪深|行业|证券|信息|地产|传媒|国防|大宗商品/i.test(text)) return "A股指数基金";
+  if (/恒生|港股|香港|沪深港|h股|hk|红利低波港股|港中小企|港股通/i.test(text)) {
+    return "亚洲指数QDII";
+  }
+  if (/白银|黄金|油气|原油|大宗商品|商品/i.test(text)) return "商品QDII";
+  if (/qdii|纳斯达克|标普|海外|德国|印度|日本|越南|全球|美元|抗通胀/i.test(text)) return "QDII";
+  if (/指数|300|500|1000|创业板|科创|中证|国证|深证|上证|沪深|行业|证券|信息|地产|传媒|国防|大宗商品/i.test(text)) {
+    return "A股指数基金";
+  }
   return "A股股票基金";
 }
 
+function markFixedOpenFundLowValue(fund: Fund) {
+  const text = `${fund.name}${fund.fundType ?? ""}${fund.category ?? ""}`;
+  if (/定开|定期开放/.test(text)) fund.lowValue = true;
+}
+
 function shouldRefreshHoldings(fund: Fund) {
-  if (fund.fundType === "A股股票基金" || fund.fundType === "QDII") return true;
+  if (isStockFundType(fund.fundType) || isQdiiFundType(fund.fundType)) return true;
   return !resolveFundIndexRelation(fund, []).code;
 }
 
 async function updateHoldingsAndStockQuotes(em: Awaited<ReturnType<typeof forkEntityManager>>, funds: Fund[]) {
-  const fundsWithoutIndex = funds.filter((fund) => !fund.category || !fund.indexChangePercent);
-  const holdingsMap = await fetchHoldingsBatch(fundsWithoutIndex);
+  const holdingsTargets = funds.filter((fund) => fund.code === "501095" || !fund.category || !fund.indexChangePercent);
+  const holdingsMap = await fetchHoldingsBatch(holdingsTargets);
   const allStockCodes = [...new Set([...holdingsMap.values()].flat().map((holding) => holding.code))];
   const quoteMap = await fetchTencentQuotes(allStockCodes);
 
@@ -1156,6 +1466,11 @@ async function estimateFunds(funds: Fund[], marketIndices: MarketIndex[] = []) {
   );
 
   for (const fund of funds) {
+    if (shouldFreezeHongKongFundEstimate(fund, now)) {
+      applyHongKongMarketClosedEstimate(fund, now);
+      continue;
+    }
+
     const model = getFundValuationModel(fund);
     const result = await model(fund, {
       now,
@@ -1166,8 +1481,9 @@ async function estimateFunds(funds: Fund[], marketIndices: MarketIndex[] = []) {
     if (result.estimatedNav !== undefined) {
       fund.estimatedNav = result.estimatedNav;
     }
+    fund.valuationDetailsJson = result.valuationDetails ? JSON.stringify(result.valuationDetails) : undefined;
 
-    if (fund.code !== "161815") {
+    if (fund.code !== "161815" && fund.code !== "501227") {
       applyDomesticIndexRealtimeEstimate(fund, now, marketIndices);
     }
 
@@ -1184,8 +1500,42 @@ async function estimateFunds(funds: Fund[], marketIndices: MarketIndex[] = []) {
   }
 }
 
+function shouldFreezeHongKongFundEstimate(fund: Fund, now: Date) {
+  return isHongKongMarketFund(fund) && !isHongKongMarketTradingDay(now);
+}
+
+function applyHongKongMarketClosedEstimate(fund: Fund, now: Date) {
+  fund.indexChangePercent = undefined;
+
+  if (fund.nav !== undefined && fund.nav > 0) {
+    fund.estimatedNav = fund.nav;
+    fund.valuationDetailsJson = JSON.stringify({
+      modelName: "hong-kong-market-closed-nav",
+      baseDate: formatDateKey(fund.navDate ?? now),
+      estimatedChangePercent: 0,
+      components: [{
+        symbol: "HKEX",
+        name: `港股休市 ${getHongKongDateKey(now)}`,
+        weight: 100,
+        source: "market-calendar",
+        totalChangePercent: 0,
+        contributionPercent: 0,
+      }],
+    });
+  } else {
+    fund.valuationDetailsJson = undefined;
+  }
+
+  if (fund.currentPrice !== undefined && fund.estimatedNav !== undefined && fund.estimatedNav > 0) {
+    fund.estimatedPremiumRate = Math.round(
+      ((fund.currentPrice - fund.estimatedNav) / fund.estimatedNav) * 10000,
+    ) / 100;
+  }
+}
+
 function applyNavData(fund: Fund, navData: NavData) {
   fund.nav = navData.nav;
+  if (navData.navChangePercent !== undefined) fund.navChangePercent = navData.navChangePercent;
   fund.estimatedNav = navData.estimatedNav;
   const navDate = new Date(navData.navDate);
   if (Number.isFinite(navDate.getTime())) fund.navDate = navDate;
@@ -1201,7 +1551,7 @@ function applyDomesticIndexRealtimeEstimate(fund: Fund, now: Date, marketIndices
 
 function shouldUseCurrentPriceAsPremiumBase(fund: Fund, now: Date, marketIndices: MarketIndex[]) {
   if (hasTodayNav(fund, now)) return false;
-  if (fund.fundType === "QDII" || fund.fundType === "港股指数基金") return false;
+  if (isQdiiFundType(fund.fundType) || fund.fundType === "港股指数基金") return false;
   return fund.fundType === "A股指数基金" || resolveFundIndexRelation(fund, marketIndices).code !== null;
 }
 
@@ -1290,7 +1640,10 @@ async function snapshotFundDaily() {
 
     for (const fund of funds) {
       const navData = navMap.get(fund.code);
-      if (navData) applyNavData(fund, navData);
+      if (navData) {
+        applyNavData(fund, navData);
+        await recalculateFundNavChangePercent(em, fund);
+      }
     }
 
     await estimateFunds(funds, marketIndices);
@@ -1310,6 +1663,8 @@ async function snapshotFundDaily() {
       const exchangeSharesChange = fund.exchangeShares !== undefined && previousDaily?.exchangeShares !== undefined
         ? Math.round((fund.exchangeShares - previousDaily.exchangeShares) * 100) / 100
         : undefined;
+      const calculatedNavChangePercent = calculateChangeRate(fund.nav, previousDaily?.nav);
+      const navChangePercent = calculatedNavChangePercent ?? fund.navChangePercent;
       const closePremiumRate = calculatePremiumRate(fund.currentPrice, fund.estimatedNav, fund.estimatedNav);
 
       if (!daily) {
@@ -1317,6 +1672,7 @@ async function snapshotFundDaily() {
           fund,
           date: today,
           closePrice: fund.currentPrice,
+          navChangePercent,
           estimatedNav: fund.estimatedNav,
           exchangeShares: fund.exchangeShares,
           exchangeSharesChange,
@@ -1325,6 +1681,7 @@ async function snapshotFundDaily() {
         em.persist(daily);
       } else {
         daily.closePrice = fund.currentPrice;
+        daily.navChangePercent = navChangePercent;
         daily.estimatedNav = fund.estimatedNav;
         daily.exchangeShares = fund.exchangeShares;
         daily.exchangeSharesChange = exchangeSharesChange;
@@ -1338,6 +1695,163 @@ async function snapshotFundDaily() {
     console.log(`[indexScheduler] daily snapshot saved: ${funds.length} funds`);
   } catch (e) {
     logFetchError("daily snapshot", e);
+  }
+}
+
+async function scanFundPricePinsDaily() {
+  if (schedulerState.isScanningPricePins) {
+    console.warn("[indexScheduler] previous price pin scan is still running, skipped this tick");
+    return;
+  }
+
+  schedulerState.isScanningPricePins = true;
+  try {
+    const em = await forkEntityManager();
+    const funds = await em.find(Fund, {}, { orderBy: { code: "asc" } });
+    const thresholdPercent = normalizePositiveNumber(FUND_PRICE_PIN_THRESHOLD_PERCENT, 5);
+    const needleThresholdPercent = normalizePositiveNumber(FUND_PRICE_PIN_NEEDLE_THRESHOLD_PERCENT, 4);
+    const lookbackYears = normalizePositiveNumber(FUND_PRICE_PIN_LOOKBACK_YEARS, 2);
+    const fetchIntervalMs = normalizePositiveNumber(FUND_PRICE_PIN_FETCH_INTERVAL_MS, 3000);
+    let scannedCount = 0;
+    let pinCount = 0;
+
+    for (const fund of funds) {
+      if (!isValidFundCode(fund.code)) continue;
+      if (scannedCount > 0) await sleep(fetchIntervalMs);
+
+      try {
+        const klines = await fetchFundKlines(fund.code, lookbackYears);
+        const pins = detectFundPricePins(klines, thresholdPercent, needleThresholdPercent);
+        await replaceFundPricePins(em, fund, pins, thresholdPercent, needleThresholdPercent);
+        await em.flush();
+        scannedCount++;
+        pinCount += pins.length;
+      } catch (error) {
+        logFetchError(`price pin ${fund.code}`, error);
+      }
+    }
+
+    console.log(`[indexScheduler] price pin scan saved: ${pinCount} pins from ${scannedCount}/${funds.length} funds`);
+  } catch (e) {
+    logFetchError("price pin scan", e);
+  } finally {
+    schedulerState.isScanningPricePins = false;
+  }
+}
+
+function detectFundPricePins(
+  klines: FundKlineItem[],
+  thresholdPercent: number,
+  needleThresholdPercent: number,
+) {
+  return klines.flatMap((item) => {
+    const highDeviationPercent = roundPercent((item.highPrice - item.closePrice) / item.closePrice * 100);
+    const lowDeviationPercent = roundPercent((item.lowPrice - item.closePrice) / item.closePrice * 100);
+    const isHighPin = highDeviationPercent >= thresholdPercent;
+    const isLowPin = lowDeviationPercent <= -thresholdPercent;
+
+    if (!isHighPin && !isLowPin) return [];
+
+    const pinType = isHighPin && isLowPin
+      ? FundPricePinType.BOTH
+      : isHighPin ? FundPricePinType.HIGH : FundPricePinType.LOW;
+    const needle = isNeedlePin(item, isHighPin, isLowPin, needleThresholdPercent);
+
+    return [{
+      ...item,
+      highDeviationPercent,
+      lowDeviationPercent,
+      needle,
+      pinType,
+    }];
+  });
+}
+
+function isNeedlePin(
+  item: FundKlineItem,
+  isHighPin: boolean,
+  isLowPin: boolean,
+  needleThresholdPercent: number,
+) {
+  const highOpenDeviationPercent = roundPercent((item.highPrice - item.openPrice) / item.openPrice * 100);
+  const highCloseDeviationPercent = roundPercent((item.highPrice - item.closePrice) / item.closePrice * 100);
+  const lowOpenDeviationPercent = roundPercent((item.openPrice - item.lowPrice) / item.openPrice * 100);
+  const lowCloseDeviationPercent = roundPercent((item.closePrice - item.lowPrice) / item.closePrice * 100);
+
+  const isHighNeedle = isHighPin
+    && highOpenDeviationPercent >= needleThresholdPercent
+    && highCloseDeviationPercent >= needleThresholdPercent;
+  const isLowNeedle = isLowPin
+    && lowOpenDeviationPercent >= needleThresholdPercent
+    && lowCloseDeviationPercent >= needleThresholdPercent;
+
+  return isHighNeedle || isLowNeedle;
+}
+
+async function replaceFundPricePins(
+  em: SchedulerEntityManager,
+  fund: Fund,
+  pins: (FundKlineItem & {
+    highDeviationPercent: number;
+    lowDeviationPercent: number;
+    needle: boolean;
+    pinType: FundPricePinType;
+  })[],
+  thresholdPercent: number,
+  needleThresholdPercent: number,
+) {
+  const existingItems = await em.find(FundPricePin, { fund });
+  const existingByDate = new Map(existingItems.map((item) => [formatDateKey(item.pinDate), item]));
+  const touchedDateKeys = new Set<string>();
+  const detectedAt = new Date();
+
+  for (const pin of pins) {
+    const dateKey = formatDateKey(pin.date);
+    touchedDateKeys.add(dateKey);
+    let item = existingByDate.get(dateKey);
+
+    if (!item) {
+      item = new FundPricePin({
+        fund,
+        fundCode: fund.code,
+        fundName: fund.name,
+        pinDate: pin.date,
+        openPrice: pin.openPrice,
+        closePrice: pin.closePrice,
+        highPrice: pin.highPrice,
+        lowPrice: pin.lowPrice,
+        highDeviationPercent: pin.highDeviationPercent,
+        lowDeviationPercent: pin.lowDeviationPercent,
+        thresholdPercent,
+        needleThresholdPercent,
+        needle: pin.needle,
+        pinType: pin.pinType,
+        source: "EASTMONEY",
+        detectedAt,
+      });
+      em.persist(item);
+    }
+
+    item.fundCode = fund.code;
+    item.fundName = fund.name;
+    item.openPrice = pin.openPrice;
+    item.closePrice = pin.closePrice;
+    item.highPrice = pin.highPrice;
+    item.lowPrice = pin.lowPrice;
+    item.highDeviationPercent = pin.highDeviationPercent;
+    item.lowDeviationPercent = pin.lowDeviationPercent;
+    item.thresholdPercent = thresholdPercent;
+    item.needleThresholdPercent = needleThresholdPercent;
+    item.needle = pin.needle;
+    item.pinType = pin.pinType;
+    item.source = "EASTMONEY";
+    item.detectedAt = detectedAt;
+  }
+
+  for (const item of existingItems) {
+    if (!touchedDateKeys.has(formatDateKey(item.pinDate))) {
+      em.remove(item);
+    }
   }
 }
 
@@ -1361,9 +1875,40 @@ async function applyPublishedNavToFundDaily(em: SchedulerEntityManager, fund: Fu
     em.persist(daily);
   }
 
+  const previousNavDaily = await findPreviousNavDaily(em, fund, navDate);
+  const calculatedNavChangePercent = calculateChangeRate(nav, previousNavDaily?.nav);
   daily.nav = nav;
+  daily.navChangePercent = calculatedNavChangePercent ?? fund.navChangePercent;
+  if (calculatedNavChangePercent !== undefined) fund.navChangePercent = calculatedNavChangePercent;
   daily.navPremiumRate = calculatePremiumRate(daily.closePrice, nav, nav);
   daily.premiumErrorRate = calculatePremiumRate(daily.estimatedNav, nav, nav);
+}
+
+async function recalculateFundNavChangePercent(em: SchedulerEntityManager, fund: Fund) {
+  const nav = toFiniteNumber(fund.nav);
+  if (nav === undefined || !fund.navDate) return;
+
+  const navDate = startOfDay(fund.navDate instanceof Date ? fund.navDate : new Date(fund.navDate));
+  if (!Number.isFinite(navDate.getTime())) return;
+
+  const previousNavDaily = await findPreviousNavDaily(em, fund, navDate);
+  const calculatedNavChangePercent = calculateChangeRate(nav, previousNavDaily?.nav);
+  if (calculatedNavChangePercent !== undefined) fund.navChangePercent = calculatedNavChangePercent;
+}
+
+async function findPreviousNavDaily(em: SchedulerEntityManager, fund: Fund, navDate: Date) {
+  return em.findOne(
+    FundDaily,
+    { fund, date: { $lt: navDate }, nav: { $ne: null } },
+    { orderBy: { date: "desc" } },
+  );
+}
+
+function calculateChangeRate(value: unknown, previousValue: unknown) {
+  const numericValue = toFiniteNumber(value);
+  const numericPreviousValue = toFiniteNumber(previousValue);
+  if (numericValue === undefined || numericPreviousValue === undefined || numericPreviousValue <= 0) return undefined;
+  return Math.round(((numericValue - numericPreviousValue) / numericPreviousValue) * 10000) / 100;
 }
 
 function calculatePremiumRate(value: unknown, base: unknown, denominator: unknown) {
@@ -1375,8 +1920,29 @@ function calculatePremiumRate(value: unknown, base: unknown, denominator: unknow
   return Math.round(((numericValue - numericBase) / numericDenominator) * 10000) / 100;
 }
 
+function normalizePositiveNumber(value: number, fallback: number) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function roundPercent(value: number) {
+  return Math.round(value * 10000) / 10000;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function startOfDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function formatDateKey(value: Date | string) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function isSameDate(value: Date | string | null | undefined, target: Date | string | null | undefined) {
@@ -1398,16 +1964,26 @@ export async function snapshotFundDailyOnce() {
   await snapshotFundDaily();
 }
 
+export async function scanFundPricePinsOnce() {
+  await scanFundPricePinsDaily();
+}
+
 export function startIndexScheduler() {
   if (schedulerState.started) return;
   schedulerState.started = true;
 
   cron.schedule(FUND_SYNC_CRON, fetchAll);
-  cron.schedule(FUND_DAILY_SNAPSHOT_CRON, snapshotFundDaily);
+  cron.schedule(HONG_KONG_INDEX_SYNC_CRON, fetchAndUpdateHongKongIndices);
+  cron.schedule(FUND_DAILY_SNAPSHOT_CRON, snapshotFundDaily, {
+    timezone: FUND_DAILY_SNAPSHOT_TIMEZONE,
+  });
   cron.schedule(FUND_FEE_SYNC_CRON, updateFundFeesDaily);
+  cron.schedule(FUND_PRICE_PIN_SCAN_CRON, scanFundPricePinsDaily);
   void updateFundFeesDaily();
   console.log(
-    `[indexScheduler] started, cron: ${FUND_SYNC_CRON}, daily snapshot: ${FUND_DAILY_SNAPSHOT_CRON}, `
-    + `fee sync: ${FUND_FEE_SYNC_CRON}`,
+    `[indexScheduler] started, cron: ${FUND_SYNC_CRON}, hong kong index: ${HONG_KONG_INDEX_SYNC_CRON}, `
+    + `daily snapshot: ${FUND_DAILY_SNAPSHOT_CRON} (${FUND_DAILY_SNAPSHOT_TIMEZONE}), `
+    + `fee sync: ${FUND_FEE_SYNC_CRON}, `
+    + `price pin scan: ${FUND_PRICE_PIN_SCAN_CRON}`,
   );
 }

@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1262" height="702" viewBox="0 0 1262 702">
+  <rect width="1262" height="702" fill="#f7dccb"/>
+  <rect x="1" y="1" width="1260" height="700" fill="none" stroke="#111" stroke-width="2"/>
+  <rect x="1" y="1" width="1260" height="56" fill="#f07b2b" stroke="#111" stroke-width="2"/>
+  <text x="631" y="42" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="700" fill="#fff">赎回日期满7天参照表</text>
+
+  <rect x="1" y="57" width="630" height="358" fill="#f4c7a6"/>
+  <rect x="631" y="57" width="630" height="358" fill="#cfe7bf"/>
+  <rect x="1" y="57" width="630" height="50" fill="#f07b2b" stroke="#111" stroke-width="2"/>
+  <rect x="631" y="57" width="630" height="50" fill="#70ad47" stroke="#111" stroke-width="2"/>
+  <text x="316" y="93" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="700" fill="#fff">A股 / 港股基金（无时差）</text>
+  <text x="946" y="93" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="700" fill="#fff">美股QDII（有时差）</text>
+
+  <rect x="1" y="107" width="630" height="310" fill="none" stroke="#111" stroke-width="2"/>
+  <rect x="631" y="107" width="630" height="310" fill="none" stroke="#111" stroke-width="2"/>
+  <line x1="316" y1="107" x2="316" y2="415" stroke="#111" stroke-width="2"/> <line x1="788" y1="107" x2="788" y2="415" stroke="#111" stroke-width="2"/> <line x1="946" y1="107" x2="946" y2="415" stroke="#111" stroke-width="2"/> <line x1="1104" y1="107" x2="1104" y2="415" stroke="#111" stroke-width="2"/>
+  <line x1="158" y1="152" x2="158" y2="415" stroke="#111" stroke-width="2"/> <line x1="474" y1="152" x2="474" y2="415" stroke="#111" stroke-width="2"/>
+  <line x1="1" y1="152" x2="1261" y2="152" stroke="#111" stroke-width="2"/>
+<line x1="1" y1="197" x2="1261" y2="197" stroke="#111" stroke-width="2"/>
+<line x1="1" y1="242" x2="1261" y2="242" stroke="#111" stroke-width="2"/>
+<line x1="1" y1="287" x2="1261" y2="287" stroke="#111" stroke-width="2"/>
+<line x1="1" y1="332" x2="1261" y2="332" stroke="#111" stroke-width="2"/>
+<line x1="1" y1="377" x2="1261" y2="377" stroke="#111" stroke-width="2"/>
+
+  <text x="158" y="140" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="400" fill="#1f1f1f">场内买入</text> <text x="474" y="140" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="400" fill="#1f1f1f">场内申购</text>
+  <text x="788" y="140" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="400" fill="#1f1f1f">场内买入</text> <text x="1104" y="140" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="26" font-weight="400" fill="#1f1f1f">场内申购</text>
+  <text x="80" y="185" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">买入日期</text> <text x="237" y="185" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">可赎回日期</text> <text x="395" y="185" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">申购日期</text> <text x="553" y="185" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">可赎回日期</text>
+  <text x="710" y="185" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">买入日期</text> <text x="867" y="185" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">可赎回日期</text> <text x="1025" y="185" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">申购日期</text> <text x="1183" y="185" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">可赎回日期</text>
+<text x="80" y="229" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周一</text>
+<text x="237" y="229" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周五</text>
+<text x="395" y="229" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周一</text>
+<text x="553" y="229" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周一</text>
+<text x="710" y="229" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周一</text>
+<text x="867" y="229" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周四</text>
+<text x="1025" y="229" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周一</text>
+<text x="1183" y="229" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周一</text>
+<text x="80" y="274" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周二</text>
+<text x="237" y="274" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周一</text>
+<text x="395" y="274" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周二</text>
+<text x="553" y="274" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周二</text>
+<text x="710" y="274" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周二</text>
+<text x="867" y="274" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周五</text>
+<text x="1025" y="274" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周二</text>
+<text x="1183" y="274" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周二</text>
+<text x="80" y="319" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周三</text>
+<text x="237" y="319" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周二</text>
+<text x="395" y="319" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周三</text>
+<text x="553" y="319" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周三</text>
+<text x="710" y="319" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周三</text>
+<text x="867" y="319" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周一</text>
+<text x="1025" y="319" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周三</text>
+<text x="1183" y="319" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周三</text>
+<text x="80" y="364" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周四</text>
+<text x="237" y="364" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周三</text>
+<text x="395" y="364" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周四</text>
+<text x="553" y="364" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周四</text>
+<text x="710" y="364" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周四</text>
+<text x="867" y="364" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周二</text>
+<text x="1025" y="364" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周四</text>
+<text x="1183" y="364" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周四</text>
+<text x="80" y="409" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周五</text>
+<text x="237" y="409" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周四</text>
+<text x="395" y="409" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周五</text>
+<text x="553" y="409" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周五</text>
+<text x="710" y="409" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周五</text>
+<text x="867" y="409" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周三</text>
+<text x="1025" y="409" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">周五</text>
+<text x="1183" y="409" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">下周五</text>
+
+  <rect x="1" y="415" width="630" height="44" fill="#f4c7a6" stroke="#111" stroke-width="2"/>
+  <rect x="631" y="415" width="630" height="44" fill="#dcefd2" stroke="#111" stroke-width="2"/>
+  <text x="316" y="447" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">T+1 日冻结份额，T+2日 可用余额</text>
+  <text x="946" y="447" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="22" font-weight="400" fill="#1f1f1f">T+1 日冻结份额，T+2日冻结金额，T+7日可用余额</text>
+  <rect x="1" y="459" width="1260" height="89" fill="#f7dccb" stroke="#111" stroke-width="2"/>
+  <text x="631" y="498" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">可赎回日期如果恰好是节假日，那A股/港股基金可赎回日期可以提前到节假日的前一个交易日，</text>
+  <text x="631" y="533" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">QDII可赎回日期可以提前到节假日前的倒数第二个交易日。</text>
+  <rect x="1" y="548" width="1260" height="89" fill="#f4c7a6" stroke="#111" stroke-width="2"/>
+  <text x="631" y="588" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">无论A股基金还是QDII基金，申购赎回都是按照T日的净值成交。</text>
+  <text x="631" y="623" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">T日：A股交易日下午3点前就是T日，下午3点后就是T+1日。</text>
+  <rect x="1" y="637" width="1260" height="64" fill="#f7dccb" stroke="#111" stroke-width="2"/>
+  <text x="631" y="676" text-anchor="middle" font-family="Noto Sans SC, Microsoft YaHei, Arial, sans-serif" font-size="24" font-weight="400" fill="#1f1f1f">《深市》基金日内做T，只要保持开盘份额和收盘份额不变，那持有时间也就不变；沪市没这规则</text>
+</svg>

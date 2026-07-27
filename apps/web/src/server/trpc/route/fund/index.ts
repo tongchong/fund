@@ -1,9 +1,24 @@
 import { router } from "../../def";
-import { daily, list, updateFavorite, updateReviewed } from "./fund";
+import {
+  createArbitrageRedemption,
+  daily,
+  deleteArbitrageRedemption,
+  list,
+  listArbitrageRedemptions,
+  listPricePins,
+  updateFavorite,
+  updateLowValue,
+  updateReviewed,
+} from "./fund";
 
 export const fund = router({
   list,
   daily,
+  listPricePins,
+  listArbitrageRedemptions,
+  createArbitrageRedemption,
+  deleteArbitrageRedemption,
   updateFavorite,
   updateReviewed,
+  updateLowValue,
 });

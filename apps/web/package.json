@@ -12,7 +12,8 @@
     "test": "jest --passWithNoTests",
     "orm": "dotenv -e .env.development -- npx mikro-orm",
     "ormCreate": "dotenv -e .env.development -- npx mikro-orm migration:create",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "sync:jisilu": "node scripts/sync-jisilu-funds.cjs"
   },
   "dependencies": {
     "@ant-design/cssinjs": "1.21.0",
