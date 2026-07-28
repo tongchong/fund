@@ -589,34 +589,47 @@ setFundValuationModel("161815", (fund, context) => estimate161815Adjusted(fund, 
 setFundValuationModel("165513", (fund, context) => estimate161815Adjusted(fund, context, adjusted165513Config));
 setFundValuationModel("161116", (fund, context) => estimate161815Adjusted(fund, context, adjusted161116Config));
 setFundValuationModel("160216", (fund, context) => estimate161815Adjusted(fund, context, adjusted160216Config));
-setFundValuationModel("160644", estimate160644HongKongUsInternet);
+setFundValuationModel("160644", (fund, context) => estimateAdjustedEquityBasket(fund, context, adjusted160644Config));
 setFundValuationModel("501227", estimate501227BenchmarkComposite);
 setFundValuationModel("501208", estimate501208PartialHoldingsBenchmark);
-setFundValuationModel("162411", estimate162411OilGasQdii);
+setFundValuationModel("162411", (fund, context) => estimateAdjustedEquityBasket(fund, context, adjusted162411Config));
 
 const demandDepositAnnualRate = 0.05;
 const adjusted160644Config: EquityBasketConfig = {
   fundCode: "160644",
-  modelName: "160644-hk-us-internet-adjusted-v10-zhipu",
-  cashWeight: 27,
+  modelName: "160644-2026q2-holdings",
+  cashWeight: 21.82,
+  fxExposure: 78.18,
   components: [
-    { symbol: "2513.HK", name: "智谱", weight: 9.5, quoteCodes: ["02513", "02513.HK", "2513.HK"]},
-    { symbol: "SNDK", name: "SanDisk", weight: 14 },
-    { symbol: "MU", name: "Micron Technology", weight: 10 },
-    { symbol: "WDC", name: "Western Digital/其他存储链代理", weight: 4 },
-    { symbol: "STX", name: "Seagate/其他存储链代理", weight: 4 },
-    { symbol: "TSM", name: "Taiwan Semiconductor Manufacturing", weight: 10 },
-    { symbol: "NVDA", name: "NVIDIA", weight: 7 },
-    { symbol: "ASML", name: "ASML Holding", weight: 6.5 },
-    { symbol: "AVGO", name: "Broadcom", weight: 5.5 },
-    { symbol: "GOOGL", name: "Alphabet", weight: 2 },
-    {
-      symbol: "^HSTECH",
-      name: "腾讯/阿里/中海油等原港股核心代理",
-      weight: 0.5,
-      quoteCodes: ["HSTECH", "^HSTECH"],
-      fallbackChangePercent: (fund) => fund.indexChangePercent,
-    },
+    { symbol: "MU", name: "美光科技", weight: 10.64 },
+    { symbol: "SNDK", name: "闪迪", weight: 10.54 },
+    { symbol: "1888.HK", name: "建滔积层板", weight: 10.40, quoteCodes: ["01888", "01888.HK", "1888.HK"]},
+    { symbol: "0992.HK", name: "联想集团", weight: 9.35, quoteCodes: ["00992", "00992.HK", "0992.HK"]},
+    { symbol: "0148.HK", name: "建滔集团", weight: 8.92, quoteCodes: ["00148", "00148.HK", "0148.HK"]},
+    { symbol: "3690.HK", name: "美团-W", weight: 7.23, quoteCodes: ["03690", "03690.HK", "3690.HK"]},
+    { symbol: "9988.HK", name: "阿里巴巴-W", weight: 6.87, quoteCodes: ["09988", "09988.HK", "9988.HK"]},
+    { symbol: "NVDA", name: "英伟达", weight: 5.69 },
+    { symbol: "TSM", name: "台积电", weight: 5.01 },
+    { symbol: "AMD", name: "超威半导体", weight: 3.53 },
+  ],
+};
+const adjusted162411Config: EquityBasketConfig = {
+  fundCode: "162411",
+  modelName: "162411-2026q2-holdings",
+  cashWeight: 6.97,
+  fxExposure: 93.03,
+  components: [
+    { symbol: "TPL", name: "Texas Pacific Land", weight: 3.01 },
+    { symbol: "PBF", name: "PBF Energy", weight: 2.76 },
+    { symbol: "DK", name: "Delek US Holdings", weight: 2.66 },
+    { symbol: "EXE", name: "Expand Energy", weight: 2.65 },
+    { symbol: "CNX", name: "CNX Resources", weight: 2.63 },
+    { symbol: "EQT", name: "EQT", weight: 2.61 },
+    { symbol: "VLO", name: "Valero Energy", weight: 2.60 },
+    { symbol: "AR", name: "Antero Resources", weight: 2.54 },
+    { symbol: "DINO", name: "HF Sinclair", weight: 2.54 },
+    { symbol: "PARR", name: "Par Pacific Holdings", weight: 2.51 },
+    { symbol: "XOP", name: "二季度其余油气上游持仓（XOP代理）", weight: 66.52 },
   ],
 };
 const benchmark501208RemainderComponents: BenchmarkComponentConfig[] = [
@@ -732,21 +745,18 @@ function normalizeBenchmarkName(value: string) {
   return value.replace(/\s/g, "").toLowerCase();
 }
 
-const oilGas162411IndexSymbols = ["^SPSIOP", "SPSIOP", "^SPOGEPSI", "SPXSOP"];
-const oilGas162411FutureSymbols = ["SXO=F", "SXO"];
-const oilGas162411EtfProxySymbols = ["XOP"];
-
-async function estimate160644HongKongUsInternet(
+async function estimateAdjustedEquityBasket(
   fund: Fund,
   context: FundValuationContext,
+  config: EquityBasketConfig,
 ): Promise<FundValuationResult> {
   const base = resolveFundNavBase(fund);
-  if (!base) return { modelName: adjusted160644Config.modelName };
+  if (!base) return { modelName: config.modelName };
 
-  const totalWeight = adjusted160644Config.cashWeight
-    + adjusted160644Config.components.reduce((sum, component) => sum + component.weight, 0);
+  const totalWeight = config.cashWeight
+    + config.components.reduce((sum, component) => sum + component.weight, 0);
   const componentRows = await Promise.all(
-    adjusted160644Config.components.map(async (component) => {
+    config.components.map(async (component) => {
       const detail = await resolveEquityBasketComponentDetail(component, fund, context, base.baseDate);
       return {
         contribution: component.weight * ((detail.totalChangePercent ?? 0) / 100),
@@ -755,17 +765,17 @@ async function estimate160644HongKongUsInternet(
     }),
   );
   const componentChangePercent = componentRows.reduce((sum, row) => sum + row.contribution, 0);
-  const cashContribution = adjusted160644Config.cashWeight * 0;
+  const cashContribution = config.cashWeight * 0;
   const fxReturn = await resolveUsdCnyIntradayReturn(context);
-  const fxContribution = (adjusted160644Config.fxExposure ?? 0) * fxReturn;
+  const fxContribution = (config.fxExposure ?? 0) * fxReturn;
   const estimatedChangePercent = componentChangePercent + cashContribution + fxContribution;
-  const result = estimateByChange(fund, estimatedChangePercent, adjusted160644Config.modelName);
-  const fxDetail: FundValuationDetailComponent | undefined = adjusted160644Config.fxExposure === undefined
+  const result = estimateByChange(fund, estimatedChangePercent, config.modelName);
+  const fxDetail: FundValuationDetailComponent | undefined = config.fxExposure === undefined
     ? undefined
     : {
       symbol: "USD/CNY",
       name: "美元兑人民币汇率修正",
-      weight: adjusted160644Config.fxExposure,
+      weight: config.fxExposure,
       source: "fx",
       totalChangePercent: roundPercent(fxReturn * 100),
       contributionPercent: roundPercent(fxContribution),
@@ -774,10 +784,10 @@ async function estimate160644HongKongUsInternet(
   return {
     ...result,
     valuationDetails: {
-      modelName: adjusted160644Config.modelName,
+      modelName: config.modelName,
       baseDate: base.baseDate,
       totalWeight: roundPercent(totalWeight),
-      cashWeight: adjusted160644Config.cashWeight,
+      cashWeight: config.cashWeight,
       estimatedChangePercent: estimatedChangePercent === undefined ? undefined : roundPercent(estimatedChangePercent),
       components: [
         ...componentRows.map((row) => ({
@@ -1001,65 +1011,6 @@ function parseTencentQuoteTime(value: string | undefined) {
   return new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}+08:00`).toISOString();
 }
 
-async function estimate162411OilGasQdii(fund: Fund, context: FundValuationContext): Promise<FundValuationResult> {
-  const base = resolveFundNavBase(fund);
-  if (!base) return { modelName: "162411-sp-oil-gas-qdii" };
-
-  const latestCompletedCloseDate = getLatestCompletedUsEquityCloseDate(context.now);
-  const stage1Return = base.baseDate < latestCompletedCloseDate
-    ? await fetchFirstCloseReturn(oilGas162411IndexSymbols, base.baseDate, latestCompletedCloseDate)
-    : 0;
-  const realtimeReturn = await resolve162411RealtimeReturn(context);
-  const navNow = base.baseNav * (1 + stage1Return) * (1 + realtimeReturn);
-
-  return {
-    estimatedNav: roundNav(navNow),
-    estimatedChangePercent: roundPercent((navNow / base.baseNav - 1) * 100),
-    modelName: "162411-sp-oil-gas-qdii",
-  };
-}
-
-async function fetchFirstCloseReturn(symbols: string[], baseDate: string, targetDate: string) {
-  for (const symbol of symbols) {
-    try {
-      const item = await fetchCloseReturn(symbol, baseDate, targetDate);
-      return item.return;
-    } catch {
-      // Try the next vendor symbol for the same benchmark.
-    }
-  }
-
-  return 0;
-}
-
-async function resolve162411RealtimeReturn(context: FundValuationContext) {
-  const futureReturn = await fetchFirstCurrentReturn(oilGas162411FutureSymbols, context);
-  if (futureReturn !== undefined) return futureReturn;
-
-  if (isUsEquityRegularTradingTime(context.now)) {
-    const indexReturn = await fetchFirstCurrentReturn(oilGas162411IndexSymbols, context);
-    if (indexReturn !== undefined) return indexReturn;
-  }
-
-  return await fetchFirstCurrentReturn(oilGas162411EtfProxySymbols, context) ?? 0;
-}
-
-async function fetchFirstCurrentReturn(symbols: string[], context: FundValuationContext) {
-  const quoteReturn = resolveQuoteReturnBySymbols(symbols, context);
-  if (quoteReturn !== undefined) return quoteReturn;
-
-  for (const symbol of symbols) {
-    try {
-      const item = await fetchCurrentFutureReturn(symbol);
-      return item.return;
-    } catch {
-      // Try the next vendor symbol for the same market.
-    }
-  }
-
-  return undefined;
-}
-
 function resolveQuoteReturnBySymbols(symbols: string[], context: FundValuationContext) {
   for (const symbol of symbols) {
     const quote = context.marketQuotes.get(symbol);
@@ -1076,40 +1027,6 @@ function resolveQuoteReturnBySymbols(symbols: string[], context: FundValuationCo
   }
 
   return undefined;
-}
-
-function getLatestCompletedUsEquityCloseDate(now: Date) {
-  const parts = getZonedDateParts(now, "America/New_York");
-  const weekday = new Date(parts.date + "T00:00:00Z").getUTCDay();
-
-  if (weekday !== 0 && weekday !== 6 && parts.minutes >= 16 * 60 + 15) return parts.date;
-  return getPreviousWeekday(parts.date);
-}
-
-function isUsEquityRegularTradingTime(now: Date) {
-  const parts = getZonedDateParts(now, "America/New_York");
-  const weekday = new Date(parts.date + "T00:00:00Z").getUTCDay();
-  if (weekday === 0 || weekday === 6) return false;
-
-  return parts.minutes >= 9 * 60 + 30 && parts.minutes < 16 * 60;
-}
-
-function getZonedDateParts(date: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  const partMap = new Map(parts.map((part) => [part.type, part.value]));
-
-  return {
-    date: partMap.get("year") + "-" + partMap.get("month") + "-" + partMap.get("day"),
-    minutes: Number(partMap.get("hour")) * 60 + Number(partMap.get("minute")),
-  };
 }
 
 async function estimate161815Adjusted(

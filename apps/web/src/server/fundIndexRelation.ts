@@ -1,7 +1,9 @@
 export interface FundIndexFundLike {
   code: string;
   name: string;
+  reviewed?: boolean | null;
   category?: string | null;
+  indexCode?: string | null;
   fundType?: string | null;
 }
 
@@ -47,7 +49,7 @@ const unreviewedExactRelationRules: RelationRule[] = [
   { indexName: "\u4e2d\u8bc1800", indexCode: "000906", fundCodes: ["160806"]},
   { indexName: "\u4e2d\u8bc1\u7ea2\u5229", indexCode: "000922", fundCodes: ["501029", "501059"]},
   { indexName: "\u57fa\u672c\u976250", indexCode: "000925", fundCodes: ["160716"]},
-  { indexName: "\u4e2d\u8bc1\u533b\u836f", indexCode: "000933", fundCodes: ["160219", "161035", "163118"]},
+  { indexName: "\u4e2d\u8bc1\u533b\u836f", indexCode: "000933", fundCodes: ["160219", "163118"]},
   { indexName: "\u4e2d\u8bc1\u4fe1\u606f", indexCode: "000935", fundCodes: ["161128"]},
   { indexName: "800\u91d1\u878d", indexCode: "000974", fundCodes: ["165521"]},
   { indexName: "300\u7b49\u6743", indexCode: "000984", fundCodes: ["163821"]},
@@ -56,7 +58,7 @@ const unreviewedExactRelationRules: RelationRule[] = [
   {
     indexName: "\u521b\u4e1a\u677f\u6307",
     indexCode: "399006",
-    fundCodes: ["160143", "160223", "160325", "160529", "160926", "161914", "162720"],
+    fundCodes: ["160143", "160223", "160325", "160529", "160637", "160926", "161914", "162720"],
   },
   { indexName: "\u5de8\u6f6e100", indexCode: "399313", fundCodes: ["161607"]},
   { indexName: "\u6df1\u8bc1100", indexCode: "399330", fundCodes: ["161227", "161812"]},
@@ -77,7 +79,8 @@ const unreviewedExactRelationRules: RelationRule[] = [
   { indexName: "CS\u65b0\u80fd\u8f66", indexCode: "399976", fundCodes: ["161028"]},
   { indexName: "\u4e2d\u8bc1\u533b\u7597", indexCode: "399989", fundCodes: ["162412", "502056"]},
   { indexName: "\u57fa\u5efa\u5de5\u7a0b", indexCode: "399995", fundCodes: ["165525"]},
-  { indexName: "\u4e2d\u8bc1\u767d\u9152", indexCode: "399997", fundCodes: ["160632", "161725"]},
+  { indexName: "\u4e2d\u8bc1\u9152", indexCode: "399987", fundCodes: ["160632"]},
+  { indexName: "\u4e2d\u8bc1\u767d\u9152", indexCode: "399997", fundCodes: ["161725"]},
   { indexName: "\u4e2d\u8bc1\u7164\u70ad", indexCode: "399998", fundCodes: ["161032", "168204"]},
   { indexName: "中证中药", indexCode: "930641", fundCodes: ["501011", "501012"]},
   { indexName: "香港证券", indexCode: "930709", fundCodes: ["513090"]},
@@ -176,7 +179,8 @@ const relationRules: RelationRule[] = [
   { indexName: "中证信息", indexCode: "000935", fundCodes: ["160626"], fundNameIncludes: ["信息LOF"]},
   { indexName: "国证有色", indexCode: "399395", fundCodes: ["160221"], fundNameIncludes: ["有色金属"]},
   { indexName: "中证上游", fundCodes: ["161217"], fundNameIncludes: ["国投资源"]},
-  { indexName: "中证白酒", fundCodes: ["161725", "160632"], fundNameIncludes: ["白酒", "酒LOF"]},
+  { indexName: "中证酒", indexCode: "399987", fundCodes: ["160632"], fundNameIncludes: ["酒LOF"]},
+  { indexName: "中证白酒", fundCodes: ["161725"], fundNameIncludes: ["白酒"]},
   { indexName: "国证食品", indexCode: "399396", fundCodes: ["160222"], fundNameIncludes: ["食品LOF"]},
   { indexName: "国证地产", indexCode: "399393", fundCodes: ["160128", "160218"], fundNameIncludes: ["房地产LOF", "国证房地产"]},
   { indexName: "800地产", fundCodes: ["160628"], fundNameIncludes: ["地产"]},
@@ -196,7 +200,7 @@ const relationRules: RelationRule[] = [
   { indexName: "中证环保", indexCode: "000827", fundCodes: ["163114"]},
   { indexName: "中证中药", indexCode: "930641", fundCodes: ["501011", "501012"], fundNameIncludes: ["中药"]},
   { indexName: "中证体育", fundCodes: ["161030"], fundNameIncludes: ["体育"]},
-  { indexName: "CS医药TI", indexCode: "930791", fundCodes: ["161735"], fundNameIncludes: ["CS医药TI"]},
+  { indexName: "CS医药TI", indexCode: "930791", fundCodes: ["161035", "161735"], fundNameIncludes: ["CS医药TI"]},
   { indexName: "800医药", indexCode: "000841", fundCodes: ["165519"], fundNameIncludes: ["医药生物科技"]},
   {
     indexName: "中证港股通医药卫生综合港元指数",
@@ -370,7 +374,7 @@ const relationRules: RelationRule[] = [
     indexName: "港股通高股息率指数",
     fundCodes: ["513690"],
   },
-  { indexName: "中证医药", fundCodes: ["160635", "161035"], fundNameIncludes: ["医药"]},
+  { indexName: "中证医药", fundCodes: ["160635"], fundNameIncludes: ["医药"]},
   { indexName: "CS新能车", indexCode: "399976", fundCodes: ["161028"]},
   { indexName: "新能源车", fundCodes: ["160225"], fundNameIncludes: ["新能源车"]},
   { indexName: "证券公司", indexCode: "399975", fundCodes: ["502010", "161720", "161027"], fundNameIncludes: ["证券"]},
@@ -474,6 +478,25 @@ export function resolveFundIndexRelation(
     return {
       code: null,
       name: null,
+      changePercent: null,
+    };
+  }
+
+  if (fund.indexCode) {
+    const marketIndex = marketIndices
+      .filter(isIndexCandidate)
+      .find((index) => index.code === fund.indexCode);
+    return {
+      code: fund.indexCode,
+      name: marketIndex?.name ?? fund.category ?? null,
+      changePercent: toNullableNumber(marketIndex?.changePercent),
+    };
+  }
+
+  if (fund.reviewed) {
+    return {
+      code: null,
+      name: fund.category ?? null,
       changePercent: null,
     };
   }

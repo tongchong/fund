@@ -51,7 +51,7 @@ const LOF_LIST_PARAMS = "po=1&np=1"
   + "&fields=f2,f3,f5,f6,f8,f12,f14,f18";
 
 const NAV_API_BASE = "https://fundgz.1234567.com.cn/js";
-const PUBLISHED_NAV_API_URL = "https://fundf10.eastmoney.com/F10DataApi.aspx";
+const PUBLISHED_NAV_API_URL = "https://api.fund.eastmoney.com/f10/lsjz";
 const FUND_FEE_PAGE_BASE = "https://fundf10.eastmoney.com/jjfl";
 const SINA_QUOTE_URL = "https://hq.sinajs.cn/list=";
 const TENCENT_QUOTE_URL = "https://qt.gtimg.cn/q=";
@@ -1003,19 +1003,22 @@ async function fetchRealtimeNavSingle(code: string): Promise<NavData | null> {
 
 async function fetchPublishedNavSingle(code: string): Promise<PublishedNavData | null> {
   try {
-    const url = `${PUBLISHED_NAV_API_URL}?type=lsjz&code=${code}&page=1&per=1&rt=${Date.now()}`;
+    const url = `${PUBLISHED_NAV_API_URL}?fundCode=${code}&pageIndex=1&pageSize=1&_=${Date.now()}`;
     const text = await httpGet(url, {
       ...FETCH_HEADERS,
       "Referer": `https://fundf10.eastmoney.com/jjjz_${code}.html`,
     });
-    const rowMatch = /<td>(\d{4}-\d{2}-\d{2})<\/td>\s*<td[^>]*>([\d.]+)<\/td>/i.exec(text);
-    if (!rowMatch) return null;
-    const nav = toFiniteNumber(rowMatch[2]);
+    const payload = JSON.parse(text) as {
+      Data?: { LSJZList?: { FSRQ?: string; DWJZ?: string | number }[] };
+    };
+    const latest = payload.Data?.LSJZList?.[0];
+    const nav = toFiniteNumber(latest?.DWJZ);
     if (nav === undefined) return null;
+    if (!latest?.FSRQ || !/^\d{4}-\d{2}-\d{2}$/.test(latest.FSRQ)) return null;
 
     return {
       nav,
-      navDate: rowMatch[1],
+      navDate: latest.FSRQ,
     };
   } catch {
     return null;

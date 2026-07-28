@@ -7,6 +7,7 @@ export class Fund {
   reviewed: boolean;
   lowValue: boolean;
   category?: string;
+  indexCode?: string;
   fundType?: string;
   code: string;
   name: string;
@@ -41,6 +42,7 @@ export class Fund {
     reviewed?: boolean;
     lowValue?: boolean;
     category?: string;
+    indexCode?: string;
     fundType?: string;
     code: string;
     name: string;
@@ -72,6 +74,7 @@ export class Fund {
     this.reviewed = init.reviewed ?? false;
     this.lowValue = init.lowValue ?? false;
     this.category = init.category;
+    this.indexCode = init.indexCode;
     this.fundType = init.fundType;
     this.code = init.code;
     this.name = init.name;
@@ -112,6 +115,7 @@ fundEntitySchema.addProperty("favorite", Boolean, { default: false, columnType: 
 fundEntitySchema.addProperty("reviewed", Boolean, { default: false, columnType: "tinyint" });
 fundEntitySchema.addProperty("lowValue", Boolean, { default: false, columnType: "tinyint" });
 fundEntitySchema.addProperty("category", String, { nullable: true, length: 64 });
+fundEntitySchema.addProperty("indexCode", String, { nullable: true, length: 32 });
 fundEntitySchema.addProperty("fundType", String, { nullable: true, length: 32 });
 fundEntitySchema.addProperty("code", String, { length: 32, unique: true });
 fundEntitySchema.addProperty("name", String, { length: 128 });

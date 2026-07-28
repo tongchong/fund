@@ -257,6 +257,12 @@ export const updateReviewed = authProcedure
     const fund = await em.findOneOrFail(Fund, { code: input.code });
     const nextReviewed = input.reviewed ?? !fund.reviewed;
 
+    if (nextReviewed && !fund.reviewed) {
+      const marketIndices = await em.find(MarketIndex, {});
+      const indexRelation = resolveFundIndexRelation(fund, marketIndices);
+      fund.indexCode = indexRelation.code ?? undefined;
+      if (indexRelation.name) fund.category = indexRelation.name;
+    }
     fund.reviewed = nextReviewed;
     await em.flush();
 

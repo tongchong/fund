@@ -2,8 +2,7 @@
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 
 # Stage 1: 构建应用
-# FROM node:lts-alpine AS builder
-FROM ccrepo.pku.edu.cn/dockerhub/library/node:22-alpine AS builder
+FROM node:22-alpine AS builder
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
 
@@ -31,8 +30,7 @@ RUN pnpm install
 RUN pnpm run build
 
 # Stage 2: 运行应用
-# FROM node:lts-alpine AS runner
-FROM ccrepo.pku.edu.cn/dockerhub/library/node:22-alpine AS runner
+FROM node:22-alpine AS runner
 
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.ustc.edu.cn/g' /etc/apk/repositories
 
